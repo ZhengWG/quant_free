@@ -2,7 +2,7 @@
  * WebSocket客户端服务
  */
 
-import * as WebSocket from 'ws';
+import WebSocket = require('ws');
 import { Stock } from '../types/market';
 import { Order } from '../types/trade';
 
@@ -42,7 +42,7 @@ export class WebSocketClient {
                     }
                 });
 
-                this.ws.on('error', (error) => {
+                this.ws.on('error', (error: Error) => {
                     console.error('[WebSocket] Error:', error);
                     reject(error);
                 });

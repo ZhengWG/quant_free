@@ -13,7 +13,7 @@ export class MarketDataView {
     private apiClient: ApiClient;
     private wsClient: WebSocketClient;
     private storageService: StorageService;
-    private view: vscode.TreeDataProvider<StockItem>;
+    private view: StockTreeDataProvider;
     private refreshTimer: NodeJS.Timeout | null = null;
 
     constructor(

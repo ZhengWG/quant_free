@@ -92,16 +92,26 @@ echo ""
 echo "🔨 测试VSCode插件编译..."
 cd "$PROJECT_ROOT/extension"
 if [ -f "package.json" ]; then
+    # 尝试使用nvm加载node和npm
+    if [ -s "$HOME/.nvm/nvm.sh" ]; then
+        export NVM_DIR="$HOME/.nvm"
+        source "$NVM_DIR/nvm.sh"
+        nvm use node 2>/dev/null || nvm use --lts 2>/dev/null || true
+    fi
+    
     if ! command -v npm &> /dev/null; then
         echo -e "${YELLOW}⚠️  npm未安装，跳过插件编译测试${NC}"
     else
+        echo "Node版本: $(node --version)"
+        echo "NPM版本: $(npm --version)"
         if [ ! -d "node_modules" ]; then
             echo "安装插件依赖..."
             npm install --silent
         fi
         echo "编译TypeScript..."
-        if npm run compile 2>&1 | grep -q "error"; then
+        if npm run compile 2>&1 | tee /tmp/compile.log | grep -q "error"; then
             echo -e "${RED}❌ 插件编译失败${NC}"
+            cat /tmp/compile.log
         else
             echo -e "${GREEN}✓ 插件编译成功${NC}"
         fi
