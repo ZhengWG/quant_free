@@ -1,0 +1,41 @@
+{
+  "name": "quant-free",
+  "version": "0.1.0",
+  "description": "VSCode股票交易助手 - 实时行情、AI策略推荐、自动化交易",
+  "private": true,
+  "workspaces": [
+    "extension",
+    "server"
+  ],
+  "scripts": {
+    "install:all": "npm install && cd extension && npm install && cd ../server && npm install",
+    "build": "npm run build --workspace=extension && npm run build --workspace=server",
+    "dev:extension": "npm run dev --workspace=extension",
+    "dev:server": "npm run dev --workspace=server",
+    "test": "npm run test --workspaces"
+  },
+  "keywords": [
+    "vscode",
+    "extension",
+    "stock",
+    "trading",
+    "quantitative",
+    "ai",
+    "llm"
+  ],
+  "author": {
+    "name": "Zheng Wengang",
+    "email": "",
+    "url": "https://github.com/ZhengWG"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZhengWG/quant_free.git"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
+

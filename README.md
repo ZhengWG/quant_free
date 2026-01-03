@@ -44,8 +44,9 @@
 
 ### 环境要求
 - VSCode 1.70+
-- Node.js 18+
-- npm 或 yarn
+- **Python 3.10+**（后端服务）
+- **Node.js 18+**（VSCode插件前端）
+- pip 和 npm
 
 ### 安装步骤
 
@@ -57,30 +58,35 @@ cd quant_free
 
 2. **安装依赖**
 ```bash
-# 安装插件依赖
-cd extension
-npm install
+# 安装Python后端依赖
+cd server_py
+python -m venv venv
+source venv/bin/activate  # Linux/Mac: source venv/bin/activate
+# Windows: venv\Scripts\activate
+pip install -r requirements.txt
 
-# 安装后端服务依赖
-cd ../server
+# 安装VSCode插件依赖
+cd ../extension
 npm install
 ```
 
 3. **配置环境变量**
 ```bash
 # 复制配置文件
-cp server/.env.example server/.env
+cp server_py/.env.example server_py/.env
 
-# 编辑配置文件，填入API密钥
-# - 行情数据API密钥（Tushare等）
-# - 大模型API密钥（OpenAI/Claude等）
-# - 券商API配置（如需要）
+# 编辑 server_py/.env 文件，填入API密钥：
+# - DEEPSEEK_API_KEY: DeepSeek API Key（推荐，用于策略生成）
+# - TUSHARE_TOKEN: Tushare API Token（获取A股数据）
+# - 其他可选配置
 ```
 
 4. **启动后端服务**
 ```bash
-cd server
-npm run dev
+cd server_py
+source venv/bin/activate  # 如果使用虚拟环境
+python main.py
+# 或使用: uvicorn main:app --reload
 ```
 
 5. **运行插件**
@@ -103,8 +109,9 @@ npm run dev
 
 ### 3. 生成策略推荐
 - 选择股票，点击"策略推荐"按钮
-- 等待AI分析（约3-5秒）
+- 等待AI分析（使用DeepSeek API，约3-5秒）
 - 查看策略建议和理由说明
+- **注意**：首次使用需要配置 `DEEPSEEK_API_KEY` 环境变量
 
 ### 4. 执行交易
 - 在交易面板输入订单信息
@@ -120,7 +127,7 @@ npm run dev
 
 ```
 quant_free/
-├── extension/              # VSCode插件前端
+├── extension/              # VSCode插件前端（TypeScript）
 │   ├── src/
 │   │   ├── extension.ts   # 插件入口
 │   │   ├── commands/      # 命令处理
@@ -130,16 +137,17 @@ quant_free/
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── server/                 # 后端服务
-│   ├── src/
-│   │   ├── index.ts       # 服务入口
-│   │   ├── routes/        # 路由
+├── server_py/              # 后端服务（Python）
+│   ├── app/
+│   │   ├── core/          # 核心配置
+│   │   ├── models/        # 数据模型（SQLAlchemy）
+│   │   ├── schemas/       # Pydantic模式
+│   │   ├── api/           # API路由
 │   │   ├── services/      # 业务服务
-│   │   ├── adapters/      # 外部API适配器
-│   │   ├── models/        # 数据模型
-│   │   └── database/      # 数据库
-│   ├── package.json
-│   └── tsconfig.json
+│   │   └── adapters/      # 外部API适配器
+│   ├── main.py            # 服务入口
+│   ├── requirements.txt   # Python依赖
+│   └── .env.example       # 环境变量模板
 │
 ├── docs/                   # 文档
 │   ├── PRD.md            # 产品设计文档
@@ -160,7 +168,10 @@ quant_free/
 
 ### AI模型配置
 支持多种AI模型：
-- OpenAI GPT-4（推荐，策略质量高）
+- **DeepSeek Chat**（推荐，性价比高，国内访问稳定）
+  - 获取API Key：https://platform.deepseek.com/
+  - 设置环境变量：`DEEPSEEK_API_KEY=your_key` 和 `AI_PROVIDER=deepseek`
+- OpenAI GPT-4（策略质量高，但成本较高）
 - Anthropic Claude
 - 本地模型（Ollama，免费但需本地部署）
 
