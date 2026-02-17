@@ -74,11 +74,13 @@
       ]
     },
     "viewsContainers": {
-      "activitybar": {
-        "id": "quantFree",
-        "title": "QuantFree",
-        "icon": "resources/icon.svg"
-      }
+      "activitybar": [
+        {
+          "id": "quantFree",
+          "title": "QuantFree",
+          "icon": "resources/icon.svg"
+        }
+      ]
     },
     "configuration": {
       "title": "QuantFree",
