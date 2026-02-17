@@ -3,16 +3,11 @@
   "version": "0.1.0",
   "description": "VSCode股票交易助手 - 实时行情、AI策略推荐、自动化交易",
   "private": true,
-  "workspaces": [
-    "extension",
-    "server"
-  ],
   "scripts": {
-    "install:all": "npm install && cd extension && npm install && cd ../server && npm install",
-    "build": "npm run build --workspace=extension && npm run build --workspace=server",
-    "dev:extension": "npm run dev --workspace=extension",
-    "dev:server": "npm run dev --workspace=server",
-    "test": "npm run test --workspaces"
+    "install:ext": "cd extension && npm install",
+    "compile": "cd extension && npm run compile",
+    "watch": "cd extension && npm run watch",
+    "dev": "cd extension && npm run dev"
   },
   "keywords": [
     "vscode",
