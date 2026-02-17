@@ -27,31 +27,38 @@
     "commands": [
       {
         "command": "quantFree.addStock",
-        "title": "添加自选股"
+        "title": "添加自选股",
+        "category": "QuantFree"
       },
       {
         "command": "quantFree.removeStock",
-        "title": "删除自选股"
+        "title": "删除自选股",
+        "category": "QuantFree"
       },
       {
         "command": "quantFree.generateStrategy",
-        "title": "生成策略推荐"
+        "title": "生成策略推荐",
+        "category": "QuantFree"
       },
       {
         "command": "quantFree.placeOrder",
-        "title": "下单"
+        "title": "下单",
+        "category": "QuantFree"
       },
       {
         "command": "quantFree.viewPositions",
-        "title": "查看持仓"
+        "title": "查看持仓",
+        "category": "QuantFree"
       },
       {
         "command": "quantFree.openChart",
-        "title": "打开K线图"
+        "title": "打开K线图",
+        "category": "QuantFree"
       },
       {
         "command": "quantFree.openConfig",
-        "title": "打开配置"
+        "title": "打开配置",
+        "category": "QuantFree"
       }
     ],
     "views": {
