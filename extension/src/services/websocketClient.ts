@@ -3,8 +3,7 @@
  */
 
 import WebSocket = require('ws');
-import { Stock } from '../types/market';
-import { Order } from '../types/trade';
+import http = require('http');
 
 export interface WebSocketMessage {
     type: string;
@@ -15,21 +14,38 @@ export class WebSocketClient {
     private ws: WebSocket | null = null;
     private url: string;
     private reconnectInterval: number = 5000;
+    private maxReconnectInterval: number = 60000;
+    private reconnectAttempts: number = 0;
+    private maxReconnectAttempts: number = 5;
     private reconnectTimer: NodeJS.Timeout | null = null;
     private subscribers: Map<string, Set<(data: any) => void>> = new Map();
+    private manualDisconnect: boolean = false;
 
     constructor(url: string) {
-        this.url = url.replace('http', 'ws');
+        // 正确转换协议: http->ws, https->wss
+        this.url = url.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+        if (!this.url.endsWith('/ws')) {
+            this.url = this.url.replace(/\/$/, '') + '/ws';
+        }
     }
 
     async connect(): Promise<void> {
-        return new Promise((resolve, reject) => {
+        this.manualDisconnect = false;
+
+        return new Promise((resolve) => {
             try {
-                this.ws = new WebSocket(this.url);
+                // 使用独立的http.Agent绕过VSCode/Cursor的代理
+                this.ws = new WebSocket(this.url, {
+                    agent: new http.Agent(),
+                    headers: {
+                        'Origin': 'vscode-extension',
+                    },
+                    handshakeTimeout: 5000,
+                });
 
                 this.ws.on('open', () => {
-                    console.log('[WebSocket] Connected');
-                    this.clearReconnectTimer();
+                    console.log('[WebSocket] Connected to', this.url);
+                    this.reconnectAttempts = 0;
                     resolve();
                 });
 
@@ -43,22 +59,27 @@ export class WebSocketClient {
                 });
 
                 this.ws.on('error', (error: Error) => {
-                    console.error('[WebSocket] Error:', error);
-                    reject(error);
+                    console.warn('[WebSocket] Error:', error.message);
                 });
 
                 this.ws.on('close', () => {
                     console.log('[WebSocket] Disconnected');
-                    this.scheduleReconnect();
+                    if (!this.manualDisconnect) {
+                        this.scheduleReconnect();
+                    }
+                    resolve();
                 });
             } catch (error) {
-                reject(error);
+                console.warn('[WebSocket] Failed to create connection:', error);
+                resolve();
             }
         });
     }
 
     disconnect(): void {
+        this.manualDisconnect = true;
         this.clearReconnectTimer();
+        this.reconnectAttempts = 0;
         if (this.ws) {
             this.ws.close();
             this.ws = null;
@@ -71,7 +92,6 @@ export class WebSocketClient {
         }
         this.subscribers.get(event)!.add(callback);
 
-        // 返回取消订阅函数
         return () => {
             this.subscribers.get(event)?.delete(callback);
         };
@@ -93,8 +113,6 @@ export class WebSocketClient {
     send(message: WebSocketMessage): void {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify(message));
-        } else {
-            console.warn('[WebSocket] Not connected, message not sent:', message);
         }
     }
 
@@ -113,13 +131,30 @@ export class WebSocketClient {
     }
 
     private scheduleReconnect(): void {
+        if (this.manualDisconnect) {
+            return;
+        }
+
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.warn(`[WebSocket] Max reconnect attempts (${this.maxReconnectAttempts}) reached. Server may not be running.`);
+            return;
+        }
+
         this.clearReconnectTimer();
+        this.reconnectAttempts++;
+
+        const delay = Math.min(
+            this.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1),
+            this.maxReconnectInterval
+        );
+
+        console.log(`[WebSocket] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+
         this.reconnectTimer = setTimeout(() => {
-            console.log('[WebSocket] Attempting to reconnect...');
             this.connect().catch(error => {
-                console.error('[WebSocket] Reconnect failed:', error);
+                console.warn('[WebSocket] Reconnect failed:', error);
             });
-        }, this.reconnectInterval);
+        }, delay);
     }
 
     private clearReconnectTimer(): void {
@@ -129,4 +164,3 @@ export class WebSocketClient {
         }
     }
 }
-

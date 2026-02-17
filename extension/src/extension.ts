@@ -22,7 +22,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const serverUrl = config.get<string>('serverUrl', 'http://localhost:3000');
     
     apiClient = new ApiClient(serverUrl);
-    wsClient = new WebSocketClient(serverUrl.replace('http', 'ws'));
+    wsClient = new WebSocketClient(serverUrl);
 
     // 注册视图
     marketDataView = new MarketDataView(context, apiClient, wsClient, storageService);
@@ -74,8 +74,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
     commands.forEach(command => context.subscriptions.push(command));
 
-    // 初始化WebSocket连接
-    await wsClient.connect();
+    // 初始化WebSocket连接（后端未启动时不阻塞插件激活）
+    wsClient.connect().catch(() => {
+        console.warn('[QuantFree] WebSocket initial connection failed. Will retry when server is available.');
+    });
     
     // 监听配置变化
     context.subscriptions.push(
@@ -84,7 +86,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 const newUrl = vscode.workspace.getConfiguration('quantFree').get<string>('serverUrl', 'http://localhost:3000');
                 apiClient?.updateServerUrl(newUrl);
                 await wsClient?.disconnect();
-                wsClient = new WebSocketClient(newUrl.replace('http', 'ws'));
+                wsClient = new WebSocketClient(newUrl);
                 await wsClient.connect();
             }
         })
