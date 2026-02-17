@@ -1,33 +1,59 @@
+<div align="center">
+<img src="docs/images/icon.png" alt="QuantFree Logo" width="180">
+
 # QuantFree - VSCode股票交易助手
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 [![GitHub](https://img.shields.io/badge/GitHub-ZhengWG-181717?style=flat&logo=github)](https://github.com/ZhengWG)
 
-> 一款集成在VSCode编辑器中的股票交易管理插件，为开发者提供实时行情查看、AI驱动的交易策略推荐和自动化交易执行功能。
+**一款集成在VSCode/Cursor编辑器中的A股交易管理插件**
+**实时行情 · AI策略推荐 · 模拟交易 · K线可视化 · 策略回测**
+
+</div>
+
+---
 
 **作者**：[Zheng Wengang](https://github.com/ZhengWG) | **个人网站**：[johneyzheng.top](https://johneyzheng.top/)
+
+## 功能预览
+
+<div align="center">
+
+<img src="docs/images/vscode_view.png" alt="QuantFree 功能预览" width="900">
+
+*左侧：实时行情 / AI策略推荐 / 持仓管理 — 右侧：K线可视化图表（收盘价折线图、K线图、成交量图）— 下方：交易记录输出*
+
+</div>
 
 ## 核心功能
 
 ### 实时行情监控
-- 在VSCode侧边栏实时查看A股行情（新浪财经API，无需Token）
-- 支持沪深A股（如 000001 平安银行、600519 贵州茅台）
-- 实时价格、涨跌幅、成交量自动刷新
-- K线数据查看（腾讯财经API，日K/周K/月K）
+- 在VSCode侧边栏实时查看A股行情，涨跌一目了然（红涨绿跌图标）
+- 支持沪深A股（如 000001 平安银行、600519 贵州茅台、002594 比亚迪）
+- 实时价格、涨跌幅、成交量自动刷新（可配置刷新间隔）
+
+### K线可视化
+- 基于 WebView + Canvas 的**交互式K线图表**
+- 三种视图一键切换：**收盘价折线图** / **K线图（蜡烛图）** / **成交量柱状图**
+- 鼠标悬停显示详细数据（日期、开高低收、涨跌额、成交量）
+- 渐变填充 + 涨跌配色，视觉体验优秀
+- 支持日K / 周K / 月K（腾讯财经API）
 
 ### AI策略推荐
-- 集成DeepSeek/OpenAI大模型，基于实时行情生成个性化策略
-- 提供买入/卖出/持有建议、目标价位、止损位
-- 风险评估与置信度评分
+- 集成 **DeepSeek / OpenAI** 大模型，基于实时行情生成个性化策略
+- 提供买入 / 卖出 / 持有建议、目标价位、止损位
+- 风险评估与置信度评分，结果直接展示在侧边栏
+- 策略理由详细输出到 OutputChannel
 
 ### 模拟交易
-- 市价单自动获取实时价格成交
-- 限价单指定价格成交
+- 市价单自动获取实时价格成交，限价单指定价格成交
 - 滑点模拟（0.1% +/- 随机浮动）
-- A股手续费：佣金0.025%（最低5元）、印花税0.05%（仅卖出）、过户费0.001%
-- 持仓跟踪、成本含费、实时盈亏估值
+- A股真实手续费：佣金0.025%（最低5元）、印花税0.05%（仅卖出）、过户费0.001%
+- **侧边栏持仓面板**：实时显示账户总资产、可用资金、总盈亏、各股票持仓详情
+- 下单后自动刷新持仓视图
 - 初始模拟资金100万元
 
 ### 策略回测
@@ -39,7 +65,7 @@
 ## 快速开始
 
 ### 环境要求
-- VSCode 1.70+
+- VSCode 1.70+ 或 Cursor
 - Python 3.8+（后端服务）
 - Node.js 18+（VSCode插件前端）
 
@@ -71,11 +97,13 @@ npm run compile
 
 ### 运行VSCode插件
 
-在VSCode中打开项目根目录，按 `F5` 启动Extension Development Host。
+在VSCode/Cursor中打开项目根目录，按 `F5` 启动Extension Development Host。
 
 ## VSCode插件使用指南
 
-插件启动后，所有功能通过**命令面板**（`Ctrl+Shift+P` / `Cmd+Shift+P`）调用：
+插件启动后，左侧活动栏出现 **QuantFree** 图标，点击展开三个面板：**实时行情** / **策略推荐** / **交易**。
+
+所有功能也可通过**命令面板**（`Ctrl+Shift+P` / `Cmd+Shift+P`）调用：
 
 ### 1. 添加自选股
 
@@ -83,12 +111,13 @@ npm run compile
 
 ```
 输入股票代码 → 000001
-→ 侧边栏 "行情监控" 面板出现：
-  平安银行  ¥10.91  -0.46%
+→ 提示 "已添加自选股: 000001"
+→ 侧边栏 "实时行情" 面板出现：
+  ↓ 平安银行 (000001)  ¥10.91  -0.46%
 ```
 
 支持的代码格式：
-- A股：`000001`（平安银行）、`600519`（贵州茅台）
+- A股：`000001`（平安银行）、`600519`（贵州茅台）、`002594`（比亚迪）
 - 6开头自动识别为上交所，其他为深交所
 
 ### 2. 删除自选股
@@ -101,22 +130,15 @@ npm run compile
 → "已删除 000001"
 ```
 
-### 3. 查看K线数据
+### 3. 查看K线图
 
 命令面板输入：`QuantFree: 打开K线图`
 
 ```
-输入股票代码 → 600519
-→ 输出面板显示K线数据表：
-
-=== 600519 K线数据 ===
-
-日期            开盘     最高     最低     收盘     成交量
-──────────────────────────────────────────────────────────
-2025-09-17     1487.00  1510.00  1481.00  1498.00     3218956
-2025-09-18     1498.00  1502.00  1478.00  1480.00     4015823
-...
-共 100 条数据
+输入股票代码 → 002594
+→ 新标签页打开可视化K线图表
+→ 支持三种视图切换：收盘价 / K线 / 成交量
+→ 鼠标悬停查看每日详情
 ```
 
 ### 4. AI策略推荐
@@ -124,18 +146,15 @@ npm run compile
 命令面板输入：`QuantFree: 生成策略推荐`
 
 ```
-输入股票代码 → 000001
-→ 输出面板显示AI策略：
-
-=== 策略推荐 ===
-股票：000001 (平安银行)
-操作建议：HOLD
-目标价：¥12.50
-止损价：¥9.80
-置信度：0.7
-风险等级：MEDIUM
-AI模型：deepseek
-分析理由：基于当前市场数据，建议...
+输入股票代码 → 002594
+→ 侧边栏 "策略推荐" 面板显示：
+  比亚迪  002594
+  建议  HOLD
+  置信度  65.0%
+  风险等级  MEDIUM
+  持仓周期  1-2周
+  AI模型  deepseek
+→ OutputChannel 显示完整策略理由
 ```
 
 > 需要在 `server/.env` 中配置 `DEEPSEEK_API_KEY` 才能获得真实AI分析
@@ -155,7 +174,7 @@ AI模型：deepseek
 → 输出面板显示成交结果：
 
 订单成交！
-订单号：a85e728f-f59f-4660-a729-14bb2af6e6ec
+订单号：a85e728f-...
 状态：FILLED
 成交价：¥10.91 (滑点 0.092%)
 ─── 费用明细 ───
@@ -163,23 +182,24 @@ AI模型：deepseek
   印花税：¥0.00
   过户费：¥0.01
   总费用：¥5.01
-```
 
-**市价单**会自动获取新浪实时行情价格成交，**限价单**以指定价格+滑点成交。
+→ 侧边栏 "交易" 面板自动刷新持仓
+```
 
 ### 6. 查看持仓
 
 命令面板输入：`QuantFree: 查看持仓`
 
 ```
-→ 输出面板显示：
-
-=== 当前持仓 ===
-平安银行 (000001): 100股, 成本: ¥10.96, 现价: ¥10.91, 盈亏: -¥5.01 (-0.46%), 累计费用: ¥5.01
-贵州茅台 (600519): 10股, 成本: ¥1502.26, 现价: ¥1485.30, 盈亏: -¥169.55 (-1.13%), 累计费用: ¥5.15
+→ 侧边栏 "交易" 面板显示：
+  💰 账户总资产  ¥999,560.27
+  💳 可用资金    ¥783,700.77
+  📊 总盈亏      -¥439.73 (-0.04%)
+  ── 持仓 ── 3只
+  ↓ 平安银行 (000001)  10150股 | 成本¥10.92 | 现价¥10.91 | -0.12%
+  ↓ 贵州茅台 (600519)  10股 | 成本¥1502.26 | 现价¥1485.30 | -1.13%
+  ↓ 比亚迪 (002594)    1000股 | 成本¥90.39 | 现价¥90.27 | -0.14%
 ```
-
-持仓的**现价**为实时行情价格，**成本价**已包含买入手续费。
 
 ### 7. 插件配置
 
@@ -190,16 +210,20 @@ AI模型：deepseek
 |---|---|---|
 | `quantFree.serverUrl` | `http://localhost:3000` | 后端服务地址 |
 | `quantFree.refreshInterval` | `5000` | 行情刷新间隔（毫秒） |
+| `quantFree.dataSource` | `auto` | 行情数据源（auto / sina / tencent / eastmoney） |
 | `quantFree.aiModel` | `deepseek` | AI模型选择 |
 
 ## API使用样例
 
-后端服务启动后，也可以直接通过API调用。完整文档访问 http://localhost:3000/docs
+后端服务启动后，也可以直接通过API调用。
 
 ### 获取实时行情
 
 ```bash
+# 默认数据源
 curl 'http://localhost:3000/api/v1/market/realtime?codes=000001,600519'
+# 指定数据源
+curl 'http://localhost:3000/api/v1/market/realtime?codes=000001,600519&source=tencent'
 ```
 
 ```json
@@ -299,10 +323,11 @@ quant_free/
 ├── extension/              # VSCode插件前端（TypeScript）
 │   ├── src/
 │   │   ├── extension.ts   # 插件入口，注册7个命令
-│   │   ├── views/         # MarketDataView, StrategyView, TradeView
+│   │   ├── views/         # MarketDataView（行情+K线图）, StrategyView, TradeView
 │   │   ├── services/      # ApiClient, WebSocketClient, StorageService
 │   │   ├── types/         # TypeScript类型定义
 │   │   └── utils/         # 格式化、验证工具
+│   ├── resources/         # 插件图标
 │   ├── package.json
 │   └── tsconfig.json
 │
@@ -313,21 +338,27 @@ quant_free/
 │   │   ├── schemas/       # Pydantic请求/响应模式
 │   │   ├── api/routes/    # market, strategy, trade, backtest 路由
 │   │   ├── services/      # 业务逻辑（行情、交易、回测、WebSocket）
-│   │   └── adapters/      # 新浪/腾讯行情API、DeepSeek/OpenAI AI服务
+│   │   └── adapters/      # 新浪/腾讯/东方财富行情、DeepSeek/OpenAI AI
 │   ├── main.py            # FastAPI入口
 │   ├── requirements.txt
 │   └── .env.example       # 环境变量模板
 │
 ├── tests/                  # API测试、WebSocket测试
 ├── docs/                   # PRD、架构设计文档
+│   └── images/            # Logo、截图
 └── README.md
 ```
 
 ## 配置说明
 
-### 行情数据源（已接入，无需配置）
-- **新浪财经API** — 实时行情（A股、港股）
-- **腾讯财经API** — K线数据、历史数据
+### 行情数据源（三源可选，无需Token）
+| 数据源 | 用途 | 说明 |
+|---|---|---|
+| **新浪财经** | 实时行情（默认） | A股、港股实时数据 |
+| **腾讯财经** | K线数据 + 实时行情备用 | 日K/周K/月K历史数据 |
+| **东方财富** | 实时行情备用 | JSON格式，稳定可靠 |
+
+在插件设置中可切换 `quantFree.dataSource`：`auto`（自动容灾）/ `sina` / `tencent` / `eastmoney`
 
 ### AI模型配置（可选）
 在 `server/.env` 中配置：
@@ -349,23 +380,25 @@ quant_free/
 - [x] 基础插件框架（VSCode Extension + FastAPI后端）
 - [x] 实时行情查看（新浪API，A股实时数据）
 - [x] K线数据和历史行情（腾讯API，日K/周K/月K）
-- [x] AI策略推荐（DeepSeek/OpenAI集成）
+- [x] AI策略推荐（DeepSeek/OpenAI集成，侧边栏展示）
 - [x] 模拟交易（市价/限价单、滑点、手续费、持仓管理）
 - [x] 策略回测（MA交叉、MACD策略，计算夏普比率等）
-- [x] 自选股管理（添加/删除）
+- [x] 自选股管理（添加/删除，操作反馈提示）
 - [x] WebSocket实时推送架构
 
-### 第二阶段（计划中）
+### 第二阶段 -- 已完成
+- [x] **K线可视化图表**（WebView + Canvas，收盘价折线图/K线蜡烛图/成交量柱状图）
+- [x] **多数据源支持**（新浪/腾讯/东方财富，前端可切换，auto自动容灾）
+- [x] **侧边栏丰富化**（策略推荐/持仓信息直接展示在侧边栏 TreeView）
+- [x] **交互体验优化**（添加自选股反馈、API错误友好提示、下单自动刷新持仓）
+
+### 第三阶段（计划中）
 - [ ] 实盘交易API对接（券商API）
-- [ ] K线图可视化（WebView图表）
 - [ ] 更多回测策略（KDJ、布林带等）
 - [ ] 交易记录导出
-
-### 第三阶段
 - [ ] 多市场支持（港股、美股实时行情）
 - [ ] 高级技术指标
 - [ ] 策略优化与参数调优
-- [ ] 性能优化
 
 ## 安全说明
 
@@ -406,7 +439,7 @@ quant_free/
 
 <div align="center">
 
-**如果这个项目对你有帮助，请给个 Star！**
+**如果这个项目对你有帮助，请给个 Star!**
 
 Made with by [ZhengWG](https://github.com/ZhengWG)
 

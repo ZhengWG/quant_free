@@ -4,6 +4,7 @@
   "description": "VSCode股票交易管理插件，提供实时行情查看、AI驱动的交易策略推荐和自动化交易执行功能",
   "version": "0.1.0",
   "publisher": "zhengwg",
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.70.0"
   },
