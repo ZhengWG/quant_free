@@ -15,14 +15,17 @@ market_service = MarketDataService()
 
 
 @router.get("/realtime", response_model=ApiResponse[List[Stock]])
-async def get_realtime_data(codes: str = Query(..., description="股票代码，逗号分隔")):
+async def get_realtime_data(
+    codes: str = Query(..., description="股票代码，逗号分隔"),
+    source: str = Query("auto", description="数据源: auto/sina/eastmoney/tencent")
+):
     """获取实时行情"""
     try:
         code_list = [c.strip() for c in codes.split(",") if c.strip()]
         if not code_list:
             raise HTTPException(status_code=400, detail="股票代码不能为空")
         
-        data = await market_service.get_realtime_data(code_list)
+        data = await market_service.get_realtime_data(code_list, source=source)
         return ApiResponse(success=True, data=data)
     except Exception as e:
         logger.error(f"Get realtime data error: {e}")

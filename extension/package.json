@@ -89,6 +89,20 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "quantFree.marketData",
+        "contents": "暂无自选股\n[添加自选股](command:quantFree.addStock)"
+      },
+      {
+        "view": "quantFree.strategy",
+        "contents": "暂无策略推荐\n[生成策略推荐](command:quantFree.generateStrategy)"
+      },
+      {
+        "view": "quantFree.trade",
+        "contents": "暂无持仓信息\n[下单交易](command:quantFree.placeOrder)\n[查看持仓](command:quantFree.viewPositions)"
+      }
+    ],
     "configuration": {
       "title": "QuantFree",
       "properties": {
@@ -101,6 +115,23 @@
           "type": "number",
           "default": 5000,
           "description": "行情刷新间隔（毫秒）"
+        },
+        "quantFree.dataSource": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "sina",
+            "eastmoney",
+            "tencent"
+          ],
+          "enumDescriptions": [
+            "自动切换（Sina优先，失败自动备用）",
+            "新浪财经API",
+            "东方财富API",
+            "腾讯财经API"
+          ],
+          "default": "auto",
+          "description": "行情数据源选择"
         },
         "quantFree.aiModel": {
           "type": "string",

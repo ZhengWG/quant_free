@@ -157,11 +157,40 @@ class SinaAdapter:
             logger.error(f"Parse HK data error for {sina_code}: {e}")
             return None
 
-    async def get_realtime_data(self, codes: List[str]) -> List[Dict]:
-        """获取实时行情数据（新浪API）"""
+    # 数据源调度顺序
+    _SOURCE_METHODS = {
+        "sina": "_get_realtime_from_sina",
+        "eastmoney": "_get_realtime_from_eastmoney",
+        "tencent": "_get_realtime_from_tencent",
+    }
+    _AUTO_ORDER = ["sina", "tencent", "eastmoney"]
+
+    async def get_realtime_data(self, codes: List[str], source: str = "auto") -> List[Dict]:
+        """获取实时行情数据，支持手动选择数据源"""
         if not codes:
             return []
 
+        if source != "auto" and source in self._SOURCE_METHODS:
+            method = getattr(self, self._SOURCE_METHODS[source])
+            results = await method(codes)
+            if results:
+                return results
+            logger.warning(f"[{source}] returned empty")
+            return []
+
+        # auto 模式：依次尝试
+        for src in self._AUTO_ORDER:
+            method = getattr(self, self._SOURCE_METHODS[src])
+            results = await method(codes)
+            if results:
+                return results
+            logger.warning(f"[{src}] returned empty, trying next source...")
+
+        logger.error("All realtime data sources failed")
+        return []
+
+    async def _get_realtime_from_sina(self, codes: List[str]) -> List[Dict]:
+        """新浪财经实时行情"""
         sina_codes = [self._normalize_code(c) for c in codes]
         url = self.REALTIME_URL + ",".join(sina_codes)
 
@@ -189,6 +218,157 @@ class SinaAdapter:
             return results
         except Exception as e:
             logger.error(f"Sina get_realtime_data error: {e}")
+            return []
+
+    def _code_to_eastmoney_secid(self, code: str) -> str:
+        """将股票代码转换为东方财富 secid 格式 (market.code)"""
+        code = code.strip()
+        if code.startswith("sh"):
+            return f"1.{code[2:]}"
+        elif code.startswith("sz"):
+            return f"0.{code[2:]}"
+        elif code.isdigit() and len(code) == 6:
+            if code.startswith(("6", "9")):
+                return f"1.{code}"
+            else:
+                return f"0.{code}"
+        return f"0.{code}"
+
+    async def _get_realtime_from_tencent(self, codes: List[str]) -> List[Dict]:
+        """腾讯财经实时行情"""
+        tencent_codes = [self._normalize_code(c) for c in codes]
+        url = "https://qt.gtimg.cn/q=" + ",".join(tencent_codes)
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url)
+                response.encoding = "gbk"
+                text = response.text
+
+            results = []
+            for line in text.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                data = self._parse_tencent_line(line)
+                if data:
+                    results.append(data)
+
+            logger.info(f"Tencent realtime: fetched {len(results)}/{len(codes)} stocks")
+            return results
+        except Exception as e:
+            logger.error(f"Tencent get_realtime_data error: {e}")
+            return []
+
+    def _parse_tencent_line(self, line: str) -> Optional[Dict]:
+        """解析腾讯实时行情"""
+        match = re.match(r'v_(\w+)="(.*)";?', line)
+        if not match:
+            return None
+        tencent_code = match.group(1)
+        data_str = match.group(2)
+        if not data_str:
+            return None
+
+        parts = data_str.split("~")
+        if len(parts) < 45:
+            return None
+
+        try:
+            name = parts[1]
+            code = parts[2]
+            price = float(parts[3])
+            pre_close = float(parts[4])
+            open_price = float(parts[5])
+            volume_lots = float(parts[36]) if parts[36] else 0
+            amount = float(parts[37]) if parts[37] else 0
+            high = float(parts[33]) if parts[33] else price
+            low = float(parts[34]) if parts[34] else price
+
+            change = round(price - pre_close, 4)
+            change_pct = float(parts[32]) if parts[32] else (
+                round(change / pre_close * 100, 2) if pre_close > 0 else 0
+            )
+
+            return {
+                "code": code,
+                "name": name,
+                "market": self._detect_market(tencent_code),
+                "price": price,
+                "change": change,
+                "change_percent": change_pct,
+                "volume": volume_lots * 100,
+                "amount": amount * 10000,
+                "high": high,
+                "low": low,
+                "open": open_price,
+                "pre_close": pre_close,
+                "timestamp": datetime.now().isoformat(),
+            }
+        except (ValueError, IndexError) as e:
+            logger.error(f"Parse Tencent line error: {e}")
+            return None
+
+    async def _get_realtime_from_eastmoney(self, codes: List[str]) -> List[Dict]:
+        """东方财富API实时行情"""
+        secids = [self._code_to_eastmoney_secid(c) for c in codes]
+        url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+        params = {
+            "fltt": "2",
+            "fields": "f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18",
+            "secids": ",".join(secids),
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                response = await client.get(url, params=params)
+                data = response.json()
+
+            if data.get("rc") != 0:
+                logger.warning(f"East Money API error: {data}")
+                return []
+
+            diff = data.get("data", {}).get("diff", [])
+            results = []
+            for item in diff:
+                try:
+                    code = str(item.get("f12", ""))
+                    price = float(item.get("f2", 0))
+                    if price <= 0:
+                        continue
+
+                    pre_close = float(item.get("f18", 0))
+                    change = float(item.get("f4", 0))
+                    change_pct = float(item.get("f3", 0))
+                    volume_lots = float(item.get("f5", 0))
+
+                    market = "A股"
+                    if code.startswith(("6", "9")):
+                        market = "A股"
+
+                    results.append({
+                        "code": code,
+                        "name": item.get("f14", ""),
+                        "market": market,
+                        "price": price,
+                        "change": change,
+                        "change_percent": change_pct,
+                        "volume": volume_lots * 100,
+                        "amount": float(item.get("f6", 0)),
+                        "high": float(item.get("f15", 0)),
+                        "low": float(item.get("f16", 0)),
+                        "open": float(item.get("f17", 0)),
+                        "pre_close": pre_close,
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Parse East Money item error: {e}, item: {item}")
+                    continue
+
+            logger.info(f"East Money realtime: fetched {len(results)}/{len(codes)} stocks")
+            return results
+        except Exception as e:
+            logger.error(f"East Money get_realtime_data error: {e}")
             return []
 
     async def get_kline_data(self, code: str, scale: int = 240, datalen: int = 100) -> List[Dict]:

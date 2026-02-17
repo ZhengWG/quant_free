@@ -2,6 +2,7 @@
  * API客户端服务
  */
 
+import * as vscode from 'vscode';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { ApiResponse } from '../types/common';
 import { Stock, KLineData, HistoryData } from '../types/market';
@@ -53,8 +54,9 @@ export class ApiClient {
 
     // 行情数据API
     async getRealTimeData(codes: string[]): Promise<Stock[]> {
+        const source = vscode.workspace.getConfiguration('quantFree').get<string>('dataSource', 'auto');
         const response = await this.client.get<ApiResponse<any[]>>('/api/v1/market/realtime', {
-            params: { codes: codes.join(',') }
+            params: { codes: codes.join(','), source }
         });
         // Backend returns snake_case, frontend expects camelCase
         return (response.data.data || []).map((item: any) => ({
@@ -80,11 +82,34 @@ export class ApiClient {
 
     // 策略API
     async generateStrategy(params: StrategyParams): Promise<Strategy> {
-        const response = await this.client.post<ApiResponse<Strategy>>('/api/v1/strategy/generate', params);
+        // 转换为后端 snake_case 格式
+        const payload = {
+            stock_code: params.stockCode,
+            risk_level: params.riskLevel || 'MEDIUM',
+            time_horizon: params.timeHorizon || '短期',
+            custom_prompt: params.customPrompt
+        };
+        const response = await this.client.post<ApiResponse<any>>('/api/v1/strategy/generate', payload);
         if (!response.data.data) {
             throw new Error(response.data.message || '生成策略失败');
         }
-        return response.data.data;
+        // 转换后端 snake_case 响应为前端 camelCase
+        const d = response.data.data;
+        return {
+            id: d.id,
+            stockCode: d.stock_code,
+            stockName: d.stock_name,
+            action: d.action,
+            targetPrice: d.target_price,
+            stopLoss: d.stop_loss,
+            confidence: d.confidence,
+            reasoning: d.reasoning,
+            riskLevel: d.risk_level,
+            timeHorizon: d.time_horizon,
+            aiModel: d.ai_model,
+            createdAt: d.created_at,
+            updatedAt: d.updated_at
+        };
     }
 
     async getStrategy(id: string): Promise<Strategy> {
@@ -97,7 +122,15 @@ export class ApiClient {
 
     // 交易API
     async placeOrder(order: Partial<Order>): Promise<Order> {
-        const response = await this.client.post<ApiResponse<Order>>('/api/v1/trade/order', order);
+        // 转换为后端 snake_case 格式
+        const payload = {
+            stock_code: order.stockCode,
+            type: order.type,
+            order_type: order.orderType,
+            price: order.price,
+            quantity: order.quantity
+        };
+        const response = await this.client.post<ApiResponse<any>>('/api/v1/trade/order', payload);
         if (!response.data.data) {
             throw new Error(response.data.message || '下单失败');
         }

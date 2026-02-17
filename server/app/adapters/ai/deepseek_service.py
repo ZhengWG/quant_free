@@ -73,11 +73,11 @@ class DeepSeekService:
 
 请以JSON格式返回，包含以下字段：
 - action: "BUY" | "SELL" | "HOLD"
-- targetPrice: 目标价格（数字，可选）
-- stopLoss: 止损价格（数字，可选）
+- target_price: 目标价格（数字，可选）
+- stop_loss: 止损价格（数字，可选）
 - confidence: 置信度（0-1之间的数字）
 - reasoning: 策略理由（字符串）
-- riskLevel: 风险等级（"LOW" | "MEDIUM" | "HIGH"）
-- timeHorizon: 持仓周期建议（字符串）
+- risk_level: 风险等级（"LOW" | "MEDIUM" | "HIGH"）
+- time_horizon: 持仓周期建议（字符串）
         """.strip()
 

@@ -16,11 +16,11 @@ class MarketDataService:
     def __init__(self):
         self.adapter = SinaAdapter()
 
-    async def get_realtime_data(self, codes: List[str]) -> List[Stock]:
+    async def get_realtime_data(self, codes: List[str], source: str = "auto") -> List[Stock]:
         """获取实时行情数据"""
         try:
-            logger.info(f"Getting realtime data for codes: {codes}")
-            raw_data = await self.adapter.get_realtime_data(codes)
+            logger.info(f"Getting realtime data for codes: {codes}, source: {source}")
+            raw_data = await self.adapter.get_realtime_data(codes, source=source)
 
             stocks = []
             for item in raw_data:
