@@ -53,10 +53,15 @@ export class ApiClient {
 
     // 行情数据API
     async getRealTimeData(codes: string[]): Promise<Stock[]> {
-        const response = await this.client.get<ApiResponse<Stock[]>>('/api/v1/market/realtime', {
+        const response = await this.client.get<ApiResponse<any[]>>('/api/v1/market/realtime', {
             params: { codes: codes.join(',') }
         });
-        return response.data.data || [];
+        // Backend returns snake_case, frontend expects camelCase
+        return (response.data.data || []).map((item: any) => ({
+            ...item,
+            changePercent: item.change_percent ?? item.changePercent ?? 0,
+            preClose: item.pre_close ?? item.preClose ?? 0,
+        }));
     }
 
     async getHistoryData(code: string, period: string = '1d'): Promise<HistoryData[]> {

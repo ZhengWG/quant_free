@@ -56,13 +56,62 @@ export class MarketDataView {
     }
 
     async removeSelectedStock(): Promise<void> {
-        // TODO: 实现删除选中股票
-        this.view.refresh();
+        const stocks = await this.storageService.getStocks();
+        if (stocks.length === 0) {
+            vscode.window.showInformationMessage('自选股列表为空');
+            return;
+        }
+
+        const selected = await vscode.window.showQuickPick(stocks, {
+            placeHolder: '选择要删除的股票代码',
+            canPickMany: false,
+        });
+
+        if (selected) {
+            const idx = stocks.indexOf(selected);
+            if (idx !== -1) {
+                stocks.splice(idx, 1);
+                await this.storageService.saveStocks(stocks);
+                this.view.refresh();
+                vscode.window.showInformationMessage(`已删除 ${selected}`);
+            }
+        }
     }
 
     async openChart(code: string): Promise<void> {
-        // TODO: 打开K线图
-        vscode.window.showInformationMessage(`打开 ${code} 的K线图`);
+        try {
+            const klineData = await this.apiClient.getKLineData(code);
+            if (!klineData || klineData.length === 0) {
+                vscode.window.showWarningMessage(`暂无 ${code} 的K线数据`);
+                return;
+            }
+
+            // 使用OutputChannel展示K线数据
+            const channel = vscode.window.createOutputChannel(`K线图 - ${code}`);
+            channel.clear();
+            channel.appendLine(`=== ${code} K线数据 ===`);
+            channel.appendLine('');
+            channel.appendLine('日期            开盘     最高     最低     收盘     成交量');
+            channel.appendLine('─'.repeat(70));
+
+            for (const k of klineData) {
+                const line = [
+                    k.date.padEnd(16),
+                    k.open.toFixed(2).padStart(8),
+                    k.high.toFixed(2).padStart(8),
+                    k.low.toFixed(2).padStart(8),
+                    k.close.toFixed(2).padStart(8),
+                    Math.round(k.volume).toString().padStart(12),
+                ].join(' ');
+                channel.appendLine(line);
+            }
+
+            channel.appendLine('');
+            channel.appendLine(`共 ${klineData.length} 条数据`);
+            channel.show();
+        } catch (error) {
+            vscode.window.showErrorMessage(`获取K线数据失败: ${error}`);
+        }
     }
 
     private startRefresh(): void {
