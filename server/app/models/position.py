@@ -14,3 +14,5 @@ class Position(BaseModel):
     stock_name = Column(String(100))
     quantity = Column(Integer, nullable=False, default=0)
     cost_price = Column(Float, nullable=False, default=0.0)
+    total_fees = Column(Float, default=0.0)         # 累计交易费用
+    realized_profit = Column(Float, default=0.0)    # 已实现盈亏

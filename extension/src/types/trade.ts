@@ -18,6 +18,12 @@ export interface Order extends BaseEntity {
     status: OrderStatus;
     filledQuantity: number;
     filledPrice: number;
+    // 费用明细
+    stampTax: number;
+    commission: number;
+    transferFee: number;
+    totalFee: number;
+    slippage: number;
 }
 
 export interface Position {
@@ -29,6 +35,8 @@ export interface Position {
     marketValue: number;
     profit: number;
     profitPercent: number;
+    totalFees: number;
+    realizedProfit: number;
 }
 
 export interface AccountInfo {
@@ -37,5 +45,6 @@ export interface AccountInfo {
     marketValue: number;
     profit: number;
     profitPercent: number;
+    totalFeesPaid: number;
 }
 

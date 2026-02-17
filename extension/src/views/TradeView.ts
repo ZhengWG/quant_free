@@ -97,15 +97,21 @@ export class TradeView {
         this.outputChannel.appendLine('正在提交订单...');
 
         try {
-            const result = await this.apiClient.placeOrder(order);
-            this.outputChannel.appendLine(`\n订单提交成功！`);
+            const result = await this.apiClient.placeOrder(order) as any;
+            this.outputChannel.appendLine(`\n订单成交！`);
             this.outputChannel.appendLine(`订单号：${result.id}`);
             this.outputChannel.appendLine(`状态：${result.status}`);
-            vscode.window.showInformationMessage('订单提交成功！');
+            this.outputChannel.appendLine(`成交价：¥${(result.filled_price ?? 0).toFixed(2)} (滑点 ${(result.slippage ?? 0).toFixed(3)}%)`);
+            this.outputChannel.appendLine(`─── 费用明细 ───`);
+            this.outputChannel.appendLine(`  佣金：¥${(result.commission ?? 0).toFixed(2)}`);
+            this.outputChannel.appendLine(`  印花税：¥${(result.stamp_tax ?? 0).toFixed(2)}`);
+            this.outputChannel.appendLine(`  过户费：¥${(result.transfer_fee ?? 0).toFixed(2)}`);
+            this.outputChannel.appendLine(`  总费用：¥${(result.total_fee ?? 0).toFixed(2)}`);
+            vscode.window.showInformationMessage(`成交 @¥${(result.filled_price ?? 0).toFixed(2)}，费用 ¥${(result.total_fee ?? 0).toFixed(2)}`);
         } catch (error: any) {
-            const message = error.message || '下单失败';
-            this.outputChannel.appendLine(`\n错误：${message}`);
-            vscode.window.showErrorMessage(`下单失败：${message}`);
+            const detail = error.response?.data?.detail || error.message || '下单失败';
+            this.outputChannel.appendLine(`\n错误：${detail}`);
+            vscode.window.showErrorMessage(`下单失败：${detail}`);
         }
     }
 
@@ -117,12 +123,21 @@ export class TradeView {
             if (positions.length === 0) {
                 this.outputChannel.appendLine('暂无持仓');
             } else {
-                positions.forEach(pos => {
+                positions.forEach((p: any) => {
+                    const name = p.stock_name ?? p.stockName;
+                    const code = p.stock_code ?? p.stockCode;
+                    const qty = p.quantity;
+                    const cost = p.cost_price ?? p.costPrice;
+                    const cur = p.current_price ?? p.currentPrice;
+                    const pnl = p.profit;
+                    const pnlPct = p.profit_percent ?? p.profitPercent;
+                    const fees = p.total_fees ?? p.totalFees ?? 0;
                     this.outputChannel.appendLine(
-                        `${pos.stockName} (${pos.stockCode}): ${pos.quantity}股, ` +
-                        `成本价: ¥${pos.costPrice.toFixed(2)}, ` +
-                        `当前价: ¥${pos.currentPrice.toFixed(2)}, ` +
-                        `盈亏: ${pos.profit >= 0 ? '+' : ''}¥${pos.profit.toFixed(2)} (${pos.profitPercent >= 0 ? '+' : ''}${pos.profitPercent.toFixed(2)}%)`
+                        `${name} (${code}): ${qty}股, ` +
+                        `成本: ¥${cost.toFixed(2)}, ` +
+                        `现价: ¥${cur.toFixed(2)}, ` +
+                        `盈亏: ${pnl >= 0 ? '+' : ''}¥${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%), ` +
+                        `累计费用: ¥${fees.toFixed(2)}`
                     );
                 });
             }
