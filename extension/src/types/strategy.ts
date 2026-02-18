@@ -35,12 +35,18 @@ export interface StrategyScore {
 
 export interface BacktestParams {
     stockCode: string;
-    strategy: string; // ma_cross, macd, kdj
+    strategy: string; // ma_cross, macd, kdj, rsi, bollinger
     startDate: string; // YYYY-MM-DD
     endDate: string; // YYYY-MM-DD
     initialCapital?: number;
     shortWindow?: number;
     longWindow?: number;
+    stopLossPct?: number;
+    trailingStopPct?: number;
+    riskPerTrade?: number;
+    maxPositionPct?: number;
+    trendMaLen?: number;
+    cooldownBars?: number;
 }
 
 export interface BacktestTrade {
@@ -49,6 +55,11 @@ export interface BacktestTrade {
     price: number;
     quantity: number;
     profit?: number;
+}
+
+export interface PricePoint {
+    date: string;
+    close: number;
 }
 
 export interface BacktestResult {
@@ -66,5 +77,204 @@ export interface BacktestResult {
     winRate: number;
     totalTrades: number;
     trades: BacktestTrade[];
+    priceSeries: PricePoint[];
 }
 
+export interface SmartScreenParams {
+    stockPool: string;
+    customCodes?: string;
+    screeningStrategy: string;
+    startDate: string;
+    endDate: string;
+    initialCapital?: number;
+    topN?: number;
+    mode?: string;                  // "classic" | "smart_v2"
+    predictionMonths?: number;      // smart_v2: 预测月数
+    stopLossPct?: number;
+    trailingStopPct?: number;
+    riskPerTrade?: number;
+    maxPositionPct?: number;
+    trendMaLen?: number;
+    cooldownBars?: number;
+}
+
+export interface ScreenedStock {
+    code: string;
+    name: string;
+    passed: boolean;
+    reason: string;
+}
+
+export interface RankedResult {
+    rank: number;
+    stockCode: string;
+    stockName: string;
+    strategy: string;
+    strategyLabel: string;
+    totalReturnPercent: number;
+    sharpeRatio: number;
+    maxDrawdown: number;
+    winRate: number;
+    totalTrades: number;
+    score: number;
+    backtestResult?: BacktestResult;
+    // smart_v2 fields
+    valuationScore?: number;
+    confidenceScore?: number;
+    predictedReturnPct?: number;
+    alphaPct?: number;
+    pe?: number | null;
+    pb?: number | null;
+    roe?: number | null;
+    industry?: string;
+    revenueGrowth?: number | null;
+    profitGrowth?: number | null;
+    grossMargin?: number | null;
+    signal?: string;
+    // AI fundamental analysis
+    aiScore?: number;
+    aiAnalysis?: string;
+    // smart_v2 chart data
+    equityCurve?: Array<{ date: string; value: number }>;
+    projectedEquity?: Array<{ date: string; value: number }>;
+    fullPriceSeries?: Array<{ date: string; close: number }>;
+    allTrades?: BacktestTrade[];
+    splitDate?: string;
+}
+
+export interface SmartScreenResult {
+    poolName: string;
+    screeningStrategy: string;
+    totalStocks: number;
+    screenedStocks: number;
+    totalBacktests: number;
+    timeTakenSeconds: number;
+    rankings: RankedResult[];
+    allScreened: ScreenedStock[];
+    // smart_v2 fields
+    mode?: string;
+    testBnhPct?: number;
+    avgConfidence?: number;
+    avgPredictedReturn?: number;
+}
+
+// ---------- 预测分析 ----------
+
+export interface PredictionParams {
+    stockPool: string;
+    customCodes?: string;
+    predictionMonths: number;
+    initialCapital?: number;
+    topN?: number;
+}
+
+export interface FundamentalInfo {
+    peDynamic: number | null;
+    pb: number | null;
+    marketCapYi: number | null;
+}export interface ProjectedPoint {
+    date: string;
+    value: number;
+}
+
+export interface PredictionItem {
+    rank: number;
+    stockCode: string;
+    stockName: string;
+    fundamental: FundamentalInfo;
+    valuationScore: number;
+    trendScore: number;
+    momentumScore: number;
+    volatilityScore: number;
+    volumeScore: number;
+    compositeScore: number;
+    predictedReturnPct: number;
+    predictedAnnualReturnPct: number;
+    bestStrategy: string;
+    bestStrategyLabel: string;
+    historicalReturnPct: number;
+    confidence: string;
+    signal: string;
+    fitScore: number;
+    monthlyReturnMean: number;
+    monthlyReturnStd: number;
+    historicalPrices: ProjectedPoint[];
+    projectedPrices: ProjectedPoint[];
+    projectedPricesOptimistic: ProjectedPoint[];
+    projectedPricesPessimistic: ProjectedPoint[];
+    projectedEquity: ProjectedPoint[];
+    projectedEquityOptimistic: ProjectedPoint[];
+    projectedEquityPessimistic: ProjectedPoint[];
+    historicalEquity: ProjectedPoint[];
+}
+
+export interface PredictionResult {
+    poolName: string;
+    predictionMonths: number;
+    totalAnalyzed: number;
+    timeTakenSeconds: number;
+    rankings: PredictionItem[];
+}
+
+// ---------- 策略测试 ----------
+
+export interface StrategyTestParams {
+    stockCode: string;
+    startDate: string;
+    endDate: string;
+    initialCapital?: number;
+    trainRatio?: number;
+}
+
+export interface StrategyTestItem {
+    strategy: string;
+    strategyLabel: string;
+    trainStart: string;
+    trainEnd: string;
+    testStart: string;
+    testEnd: string;
+    trainBars: number;
+    testBars: number;
+    trainReturnPct: number;
+    trainSharpe: number;
+    trainMaxDrawdown: number;
+    trainWinRate: number;
+    trainTrades: number;
+    trainBnhPct: number;
+    testBnhPct: number;
+    predictedReturnPct: number;
+    predictedDirection: string;
+    actualReturnPct: number;
+    actualSharpe: number;
+    actualMaxDrawdown: number;
+    actualWinRate: number;
+    actualTrades: number;
+    actualDirection: string;
+    trainAlphaPct: number;
+    testAlphaPct: number;
+    directionCorrect: boolean;
+    returnErrorPct: number;
+    confidenceScore: number;
+    testHasTrades: boolean;
+    trainEquity: ProjectedPoint[];
+    testEquityPredicted: ProjectedPoint[];
+    testEquityActual: ProjectedPoint[];
+    testEquityBnh: ProjectedPoint[];
+    fullPriceSeries: ProjectedPoint[];
+}
+
+export interface StrategyTestResult {
+    stockCode: string;
+    stockName: string;
+    fullStart: string;
+    fullEnd: string;
+    trainRatio: number;
+    totalStrategies: number;
+    avgConfidence: number;
+    bestStrategy: string;
+    bestStrategyLabel: string;
+    fullBnhPct: number;
+    testBnhPct: number;
+    timeTakenSeconds: number;
+    items: StrategyTestItem[];
+}

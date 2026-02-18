@@ -386,12 +386,13 @@ class SinaAdapter:
 
         # 日期范围
         end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=datalen * 2)).strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=datalen * 3)).strftime("%Y-%m-%d")
 
         url = f"{self.TENCENT_KLINE_URL}?param={tencent_code},{period},{start_date},{end_date},{datalen},qfq"
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            timeout = 15.0 if datalen <= 500 else 30.0
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(url)
 
             import json
@@ -403,7 +404,7 @@ class SinaAdapter:
 
             stock_data = data.get("data", {}).get(tencent_code, {})
             # 腾讯API可能返回 "day" 或 "qfqday" (前复权)
-            kline_list = stock_data.get(period, stock_data.get(f"qfq{period}", []))
+            kline_list = stock_data.get(period) or stock_data.get(f"qfq{period}", [])
 
             results = []
             for item in kline_list:
@@ -419,11 +420,102 @@ class SinaAdapter:
                         "amount": 0.0,
                     })
 
-            logger.info(f"Tencent kline: fetched {len(results)} records for {code} ({period})")
+            logger.info(f"Tencent kline: fetched {len(results)} records for {code} ({period}), requested {datalen}")
             return results
         except Exception as e:
-            logger.error(f"Tencent get_kline_data error: {e}")
+            logger.error(f"Tencent get_kline_data error for {code}: {e}")
             return []
+
+    def _code_to_eastmoney_secid_ext(self, code: str) -> str:
+        """股票代码 -> 东方财富 secid，支持 A 股和港股"""
+        code = code.strip()
+        if code.upper().startswith("HK"):
+            return f"116.{code[2:]}"
+        if code.startswith("sh"):
+            return f"1.{code[2:]}"
+        if code.startswith("sz"):
+            return f"0.{code[2:]}"
+        if code.isdigit() and len(code) == 6:
+            return f"1.{code}" if code.startswith(("6", "9")) else f"0.{code}"
+        return f"0.{code}"
+
+    async def get_fundamental_data(self, codes: List[str]) -> Dict[str, Dict]:
+        """
+        批量获取基本面数据 via 东方财富 ulist 接口（单次批量，更快更全）
+        返回 {code: {pe, pb, roe, market_cap_yi, float_cap_yi,
+                      revenue_growth, profit_growth, gross_margin}} 字典
+        """
+        if not codes:
+            return {}
+
+        def _sf(val):
+            if val is None or val == "-" or val == "":
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+
+        result: Dict[str, Dict] = {}
+        secids = ",".join(self._code_to_eastmoney_secid_ext(c) for c in codes)
+        code_set = set(codes)
+
+        BATCH = 50
+        secid_list = secids.split(",")
+        code_list = list(codes)
+
+        for i in range(0, len(secid_list), BATCH):
+            batch_secids = ",".join(secid_list[i: i + BATCH])
+            batch_codes = code_list[i: i + BATCH]
+            url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+            params = {
+                "fltt": "2",
+                "invt": "2",
+                "fields": "f12,f14,f9,f23,f37,f20,f21,f41,f46,f49,f100,f115",
+                "secids": batch_secids,
+            }
+            try:
+                async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+                    resp = await client.get(url, params=params)
+                    body = resp.json()
+                diffs = body.get("data", {}).get("diff", [])
+                for item in diffs:
+                    code = str(item.get("f12", ""))
+                    if code not in code_set:
+                        for bc in batch_codes:
+                            if bc.endswith(code) or code.endswith(bc.lstrip("0")):
+                                code = bc
+                                break
+                    if code not in code_set:
+                        continue
+                    pe = _sf(item.get("f9"))
+                    pb = _sf(item.get("f23"))
+                    roe = _sf(item.get("f37"))
+                    mcap = _sf(item.get("f20"))
+                    fcap = _sf(item.get("f21"))
+                    rev_g = _sf(item.get("f41"))
+                    prof_g = _sf(item.get("f46"))
+                    gm = _sf(item.get("f49"))
+                    pe_ttm = _sf(item.get("f115"))
+                    industry_raw = item.get("f100", "")
+                    industry = str(industry_raw) if industry_raw and industry_raw != "-" else None
+                    result[code] = {
+                        "pe": pe,
+                        "pb": pb,
+                        "roe": roe,
+                        "market_cap_yi": round(mcap / 1e8, 2) if mcap else None,
+                        "float_cap_yi": round(fcap / 1e8, 2) if fcap else None,
+                        "revenue_growth": round(rev_g, 2) if rev_g is not None else None,
+                        "profit_growth": round(prof_g, 2) if prof_g is not None else None,
+                        "gross_margin": round(gm, 2) if gm is not None else None,
+                        "pe_ttm": pe_ttm,
+                        "industry": industry,
+                    }
+            except Exception as e:
+                logger.warning(f"Fetch fundamental batch error: {e}")
+
+        logger.info(f"Fundamental data fetched for {len(result)}/{len(codes)} stocks")
+        return result
 
     async def get_history_data(self, code: str, period: str = "1d") -> List[Dict]:
         """获取历史数据 (使用日K线数据)"""

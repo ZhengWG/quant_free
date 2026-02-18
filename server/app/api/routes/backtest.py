@@ -6,11 +6,20 @@ from fastapi import APIRouter, HTTPException
 from loguru import logger
 
 from app.schemas.backtest import BacktestParams, BacktestResult
+from app.schemas.screening import SmartScreenParams, SmartScreenResult
+from app.schemas.prediction import PredictionParams, PredictionResult
+from app.schemas.strategy_test import StrategyTestParams, StrategyTestResult
 from app.schemas.common import ApiResponse
 from app.services.backtest_service import BacktestService
+from app.services.screening_service import ScreeningService
+from app.services.prediction_service import PredictionService
+from app.services.strategy_test_service import StrategyTestService
 
 router = APIRouter()
 backtest_service = BacktestService()
+screening_service = ScreeningService()
+prediction_service = PredictionService()
+strategy_test_service = StrategyTestService()
 
 
 @router.post("/run", response_model=ApiResponse[BacktestResult])
@@ -40,4 +49,37 @@ async def get_backtest_result(id: str):
         raise HTTPException(status_code=501, detail="Not implemented yet")
     except Exception as e:
         logger.error(f"Get backtest result error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/smart-screen", response_model=ApiResponse[SmartScreenResult])
+async def smart_screen(params: SmartScreenParams):
+    """智能选股回测"""
+    try:
+        result = await screening_service.run_smart_screen(params)
+        return ApiResponse(success=True, data=result)
+    except Exception as e:
+        logger.error(f"Smart screen error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/predict", response_model=ApiResponse[PredictionResult])
+async def predict(params: PredictionParams):
+    """预测分析"""
+    try:
+        result = await prediction_service.run_prediction(params)
+        return ApiResponse(success=True, data=result)
+    except Exception as e:
+        logger.error(f"Prediction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/strategy-test", response_model=ApiResponse[StrategyTestResult])
+async def strategy_test(params: StrategyTestParams):
+    """策略测试（Walk-Forward Validation）"""
+    try:
+        result = await strategy_test_service.run_test(params)
+        return ApiResponse(success=True, data=result)
+    except Exception as e:
+        logger.error(f"Strategy test error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

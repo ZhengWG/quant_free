@@ -4,7 +4,7 @@
 
 import * as vscode from 'vscode';
 import { ApiClient } from '../services/apiClient';
-import { Strategy, BacktestResult } from '../types/strategy';
+import { Strategy, BacktestParams, BacktestResult } from '../types/strategy';
 
 class StrategyItem extends vscode.TreeItem {
     constructor(
@@ -133,7 +133,9 @@ export class StrategyView {
             [
                 { label: 'MA均线交叉', value: 'ma_cross', description: '双均线金叉死叉策略' },
                 { label: 'MACD', value: 'macd', description: 'MACD指标策略' },
-                { label: 'KDJ', value: 'kdj', description: 'KDJ随机指标策略' }
+                { label: 'KDJ', value: 'kdj', description: 'KDJ随机指标策略' },
+                { label: 'RSI', value: 'rsi', description: 'RSI超买超卖策略' },
+                { label: '布林带', value: 'bollinger', description: '布林带突破策略' },
             ],
             { placeHolder: '请选择回测策略' }
         );
@@ -156,6 +158,40 @@ export class StrategyView {
         });
         if (!endDate) { return; }
 
+        // 高级参数（可选）
+        const advPick = await vscode.window.showQuickPick(
+            [
+                { label: '使用默认参数', value: 'default', description: '止损8% / 移动止盈12% / 单笔风险2%' },
+                { label: '自定义风控参数', value: 'custom', description: '自行设置止损、仓位、趋势过滤等' },
+            ],
+            { placeHolder: '风控参数设置' }
+        );
+        if (!advPick) { return; }
+
+        let advParams: Partial<BacktestParams> = {};
+        if (advPick.value === 'custom') {
+            const sl = await vscode.window.showInputBox({ prompt: '止损比例（%）', value: '8', validateInput: v => isNaN(Number(v)) ? '请输入数字' : null });
+            if (!sl) { return; }
+            const ts = await vscode.window.showInputBox({ prompt: '移动止盈回撤（%）', value: '12', validateInput: v => isNaN(Number(v)) ? '请输入数字' : null });
+            if (!ts) { return; }
+            const rpt = await vscode.window.showInputBox({ prompt: '单笔风险占资金比例（%）', value: '2', validateInput: v => isNaN(Number(v)) ? '请输入数字' : null });
+            if (!rpt) { return; }
+            const mpp = await vscode.window.showInputBox({ prompt: '最大仓位比例（%）', value: '95', validateInput: v => isNaN(Number(v)) ? '请输入数字' : null });
+            if (!mpp) { return; }
+            const tma = await vscode.window.showInputBox({ prompt: '趋势均线天数', value: '60', validateInput: v => isNaN(Number(v)) ? '请输入数字' : null });
+            if (!tma) { return; }
+            const cd = await vscode.window.showInputBox({ prompt: '止损后冷却天数', value: '3', validateInput: v => isNaN(Number(v)) ? '请输入数字' : null });
+            if (!cd) { return; }
+            advParams = {
+                stopLossPct: Number(sl) / 100,
+                trailingStopPct: Number(ts) / 100,
+                riskPerTrade: Number(rpt) / 100,
+                maxPositionPct: Number(mpp) / 100,
+                trendMaLen: Number(tma),
+                cooldownBars: Number(cd),
+            };
+        }
+
         this.outputChannel.show();
         this.outputChannel.appendLine(`\n正在回测 ${code} [${strategyPick.value}] ${startDate} ~ ${endDate} ...`);
 
@@ -164,7 +200,8 @@ export class StrategyView {
                 stockCode: code,
                 strategy: strategyPick.value,
                 startDate,
-                endDate
+                endDate,
+                ...advParams,
             });
 
             if (!result) {

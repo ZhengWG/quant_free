@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import { MarketDataView } from './views/MarketDataView';
 import { StrategyView } from './views/StrategyView';
 import { TradeView } from './views/TradeView';
+import { SmartScreenView } from './views/SmartScreenView';
+import { PredictionView } from './views/PredictionView';
+import { StrategyTestView } from './views/StrategyTestView';
 import { ApiClient } from './services/apiClient';
 import { WebSocketClient } from './services/websocketClient';
 import { StorageService } from './services/storage';
@@ -9,6 +12,9 @@ import { StorageService } from './services/storage';
 let marketDataView: MarketDataView | undefined;
 let strategyView: StrategyView | undefined;
 let tradeView: TradeView | undefined;
+let smartScreenView: SmartScreenView | undefined;
+let predictionView: PredictionView | undefined;
+let strategyTestView: StrategyTestView | undefined;
 let apiClient: ApiClient | undefined;
 let wsClient: WebSocketClient | undefined;
 let storageService: StorageService | undefined;
@@ -28,6 +34,9 @@ export async function activate(context: vscode.ExtensionContext) {
     marketDataView = new MarketDataView(context, apiClient, wsClient, storageService);
     strategyView = new StrategyView(context, apiClient);
     tradeView = new TradeView(context, apiClient, storageService);
+    smartScreenView = new SmartScreenView(context, apiClient);
+    predictionView = new PredictionView(context, apiClient);
+    strategyTestView = new StrategyTestView(context, apiClient);
 
     // 注册命令
     const commands = [
@@ -76,6 +85,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 await strategyView?.runBacktest(code);
             }
         }),
+        vscode.commands.registerCommand('quantFree.smartScreen', async () => {
+            await smartScreenView?.run();
+        }),
+        vscode.commands.registerCommand('quantFree.prediction', async () => {
+            await predictionView?.run();
+        }),
+        vscode.commands.registerCommand('quantFree.strategyTest', async () => {
+            await strategyTestView?.run();
+        }),
         vscode.commands.registerCommand('quantFree.openConfig', async () => {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'quantFree');
         })
@@ -108,5 +126,8 @@ export function deactivate() {
     marketDataView?.dispose();
     strategyView?.dispose();
     tradeView?.dispose();
+    smartScreenView?.dispose();
+    predictionView?.dispose();
+    strategyTestView?.dispose();
 }
 

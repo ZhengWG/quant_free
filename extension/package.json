@@ -62,6 +62,21 @@
         "category": "QuantFree"
       },
       {
+        "command": "quantFree.smartScreen",
+        "title": "智能选股回测",
+        "category": "QuantFree"
+      },
+      {
+        "command": "quantFree.prediction",
+        "title": "预测分析",
+        "category": "QuantFree"
+      },
+      {
+        "command": "quantFree.strategyTest",
+        "title": "策略测试（置信度评估）",
+        "category": "QuantFree"
+      },
+      {
         "command": "quantFree.openConfig",
         "title": "打开配置",
         "category": "QuantFree"
