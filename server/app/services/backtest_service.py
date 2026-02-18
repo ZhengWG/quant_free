@@ -4,7 +4,7 @@
 
 import math
 import uuid
-from typing import List
+from typing import List, Optional
 from loguru import logger
 
 from app.schemas.backtest import BacktestParams, BacktestResult, BacktestTrade
@@ -17,18 +17,29 @@ class BacktestService:
     def __init__(self):
         self.adapter = SinaAdapter()
 
-    async def run_backtest(self, params: BacktestParams) -> BacktestResult:
-        """运行回测"""
+    async def run_backtest(self, params: BacktestParams) -> Optional[BacktestResult]:
+        """运行回测，如果数据不足返回 None"""
         try:
             logger.info(f"Running backtest: {params.stock_code} / {params.strategy}")
 
+            # 根据日期范围估算所需数据量
+            from datetime import datetime, timedelta
+            try:
+                d_start = datetime.strptime(params.start_date, "%Y-%m-%d")
+                d_end = datetime.strptime(params.end_date, "%Y-%m-%d")
+                days_span = (d_end - d_start).days
+            except ValueError:
+                days_span = 600
+            needed = max(300, int(days_span * 0.75) + params.long_window + 50)
+
             # 获取历史K线数据
             kline_data = await self.adapter.get_kline_data(
-                params.stock_code, scale=240, datalen=300
+                params.stock_code, scale=240, datalen=needed
             )
 
             if not kline_data:
-                raise ValueError(f"No kline data for {params.stock_code}")
+                logger.warning(f"No kline data for {params.stock_code}, skip backtest")
+                return None
 
             # 过滤日期范围
             filtered = [
@@ -37,10 +48,11 @@ class BacktestService:
             ]
 
             if len(filtered) < params.long_window + 1:
-                raise ValueError(
-                    f"Insufficient data: {len(filtered)} records, "
-                    f"need at least {params.long_window + 1}"
+                logger.warning(
+                    f"Insufficient data for {params.stock_code}: "
+                    f"{len(filtered)} records, need at least {params.long_window + 1}"
                 )
+                return None
 
             # 运行策略
             if params.strategy == "ma_cross":

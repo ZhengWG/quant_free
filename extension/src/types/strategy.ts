@@ -33,3 +33,38 @@ export interface StrategyScore {
     overallScore: number; // 0-100
 }
 
+export interface BacktestParams {
+    stockCode: string;
+    strategy: string; // ma_cross, macd, kdj
+    startDate: string; // YYYY-MM-DD
+    endDate: string; // YYYY-MM-DD
+    initialCapital?: number;
+    shortWindow?: number;
+    longWindow?: number;
+}
+
+export interface BacktestTrade {
+    date: string;
+    action: string; // BUY / SELL
+    price: number;
+    quantity: number;
+    profit?: number;
+}
+
+export interface BacktestResult {
+    id: string;
+    stockCode: string;
+    strategy: string;
+    startDate: string;
+    endDate: string;
+    initialCapital: number;
+    finalCapital: number;
+    totalReturn: number;
+    totalReturnPercent: number;
+    maxDrawdown: number;
+    sharpeRatio: number;
+    winRate: number;
+    totalTrades: number;
+    trades: BacktestTrade[];
+}
+

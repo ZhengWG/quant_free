@@ -18,6 +18,12 @@ async def run_backtest(params: BacktestParams):
     """运行回测"""
     try:
         result = await backtest_service.run_backtest(params)
+        if result is None:
+            return ApiResponse(
+                success=True,
+                data=None,
+                message=f"{params.stock_code} 暂无可用的K线数据，跳过回测"
+            )
         return ApiResponse(success=True, data=result)
     except Exception as e:
         logger.error(f"Run backtest error: {e}")

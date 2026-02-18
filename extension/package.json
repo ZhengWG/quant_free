@@ -57,6 +57,11 @@
         "category": "QuantFree"
       },
       {
+        "command": "quantFree.runBacktest",
+        "title": "策略回测",
+        "category": "QuantFree"
+      },
+      {
         "command": "quantFree.openConfig",
         "title": "打开配置",
         "category": "QuantFree"

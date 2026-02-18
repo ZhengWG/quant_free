@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { ApiResponse } from '../types/common';
 import { Stock, KLineData, HistoryData } from '../types/market';
-import { Strategy, StrategyParams } from '../types/strategy';
+import { Strategy, StrategyParams, BacktestParams, BacktestResult, BacktestTrade } from '../types/strategy';
 import { Order, Position, AccountInfo } from '../types/trade';
 
 export class ApiClient {
@@ -109,6 +109,45 @@ export class ApiClient {
             aiModel: d.ai_model,
             createdAt: d.created_at,
             updatedAt: d.updated_at
+        };
+    }
+
+    async runBacktest(params: BacktestParams): Promise<BacktestResult | null> {
+        const payload = {
+            stock_code: params.stockCode,
+            strategy: params.strategy,
+            start_date: params.startDate,
+            end_date: params.endDate,
+            initial_capital: params.initialCapital ?? 100000,
+            short_window: params.shortWindow ?? 5,
+            long_window: params.longWindow ?? 20
+        };
+        const response = await this.client.post<ApiResponse<any>>('/api/v1/backtest/run', payload);
+        if (!response.data.data) {
+            return null;
+        }
+        const d = response.data.data;
+        return {
+            id: d.id,
+            stockCode: d.stock_code,
+            strategy: d.strategy,
+            startDate: d.start_date,
+            endDate: d.end_date,
+            initialCapital: d.initial_capital,
+            finalCapital: d.final_capital,
+            totalReturn: d.total_return,
+            totalReturnPercent: d.total_return_percent,
+            maxDrawdown: d.max_drawdown,
+            sharpeRatio: d.sharpe_ratio,
+            winRate: d.win_rate,
+            totalTrades: d.total_trades,
+            trades: (d.trades || []).map((t: any) => ({
+                date: t.date,
+                action: t.action,
+                price: t.price,
+                quantity: t.quantity,
+                profit: t.profit
+            }))
         };
     }
 

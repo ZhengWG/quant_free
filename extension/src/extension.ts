@@ -67,6 +67,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 await marketDataView?.openChart(code);
             }
         }),
+        vscode.commands.registerCommand('quantFree.runBacktest', async () => {
+            const code = await vscode.window.showInputBox({
+                prompt: '请输入股票代码',
+                placeHolder: '例如：000001'
+            });
+            if (code) {
+                await strategyView?.runBacktest(code);
+            }
+        }),
         vscode.commands.registerCommand('quantFree.openConfig', async () => {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'quantFree');
         })
