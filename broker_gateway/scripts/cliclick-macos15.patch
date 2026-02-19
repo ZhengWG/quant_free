@@ -1,0 +1,22 @@
+--- a/Actions/ColorPickerAction.m
++++ b/Actions/ColorPickerAction.m
+@@ -81,13 +81,22 @@
+  p.x = [MouseBaseAction getCoordinate:[coords objectAtIndex:0] forAxis:XAXIS];
+  p.y = [MouseBaseAction getCoordinate:[coords objectAtIndex:1] forAxis:YAXIS];
+ 
+  CGRect imageRect = CGRectMake(p.x, p.y, 1, 1);
++#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
++ /* CGWindowListCreateImage obsoleted in macOS 15; evolving only needs click/doubleclick, not cp */
++ [options.commandOutputHandler write:@"0 0 0\n"];
++#else
+  CGImageRef imageRef = CGWindowListCreateImage(imageRect, kCGWindowListOptionOnScreenOnly, kCGNullWindowID, kCGWindowImageDefault);
+  NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithCGImage:imageRef];
+  CGImageRelease(imageRef);
+  NSColor *color = [bitmap colorAtX:0 y:0];
+  [bitmap release];
+ 
+  [options.commandOutputHandler write:[NSString stringWithFormat:@"%d %d %d\n", (int)(color.redComponent*255), (int)(color.greenComponent*255), (int)(color.blueComponent*255)]];
++#endif
+  }
+  }
+ }

@@ -467,6 +467,17 @@ quant_free/
 | 过户费 | 0.001% | 双向收取 |
 | 滑点 | ~0.1% | 随机模拟 |
 
+### 实盘交易（macOS + 同花顺）
+
+本仓库自带**券商网关**仅支持 **macOS**，通过 [evolving](https://github.com/zetatez/evolving) 控制同花顺 Mac 版，对接已绑定的券商（中信/平安/浙商/国泰君安/国金/兴业/中金/中泰等，无券商限制可自改 evolving）。
+
+- **环境**：macOS、同花顺 Mac 版 2.3.1、`brew install cliclick`、配置 `~/.config/evolving/config.xml`，系统权限中开启终端与 osascript 的「辅助功能」「完全磁盘访问」。
+- **evolving**：本仓库通过 **Git Submodule** 集成 [evolving](https://github.com/zetatez/evolving)。克隆时使用 `git clone --recurse-submodules`，或克隆后执行 `git submodule update --init --recursive`，无需再单独克隆 evolving。
+- **启动**：至少手动登录一次券商后，`cd broker_gateway && pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 7070`。
+- **QuantFree 后端**：`server/.env` 中设置 `TRADING_MODE=live`、`BROKER_API_URL=http://127.0.0.1:7070`。
+
+支持市价/限价下单与撤单（合同编号从 GET `/orders` 获取）。
+
 ## 开发进度
 
 ### 第一阶段（MVP）-- 已完成
@@ -489,11 +500,12 @@ quant_free/
 - [x] **策略测试**（Walk-Forward 80/20，置信度评分，训练/测试权益曲线与买入持有基准）
 - [x] **预测分析**（多因子评分、拟合度、未来收益预测与乐观/悲观区间）
 
-### 第三阶段（计划中）
-- [ ] 实盘交易API对接（券商API）
-- [ ] 交易记录导出
+### 第三阶段（进行中）
+- [x] 实盘交易 API 对接（通用券商抽象层：`TRADING_MODE=live` + `BROKER_API_URL`，HTTP 接口 `/order`、`/orders`、`/positions`、`/account`）
+- [x] 交易记录导出（命令「导出交易记录」：订单/持仓/全部 CSV，UTF-8 BOM）
+- [x] 策略参数优化（命令「策略参数优化」：选择股票/策略/日期，网格搜索 `short_window`/`long_window` 等，按夏普排序 TopN，WebView 结果表）
 - [ ] 多市场扩展（美股实时行情等，港股已支持）
-- [ ] 高级技术指标与策略参数自动优化
+- [x] 高级技术指标（ADX、OBV 已实现于 `server/app/utils/indicators.py`，可按需接入回测）
 
 ## 安全说明
 

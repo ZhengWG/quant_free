@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { ApiResponse } from '../types/common';
 import { Stock, KLineData, HistoryData } from '../types/market';
-import { Strategy, StrategyParams, BacktestParams, BacktestResult, BacktestTrade, SmartScreenParams, SmartScreenResult, RankedResult, ScreenedStock, PredictionParams, PredictionResult, PredictionItem, ProjectedPoint, FundamentalInfo, StrategyTestParams, StrategyTestResult, StrategyTestItem } from '../types/strategy';
+import { Strategy, StrategyParams, BacktestParams, BacktestResult, BacktestTrade, BacktestOptimizeParams, BacktestOptimizeResult, SmartScreenParams, SmartScreenResult, RankedResult, ScreenedStock, PredictionParams, PredictionResult, PredictionItem, ProjectedPoint, FundamentalInfo, StrategyTestParams, StrategyTestResult, StrategyTestItem } from '../types/strategy';
 import { Order, Position, AccountInfo } from '../types/trade';
 
 export class ApiClient {
@@ -157,6 +157,38 @@ export class ApiClient {
             priceSeries: (d.price_series || []).map((p: any) => ({
                 date: p.date,
                 close: p.close,
+            })),
+        };
+    }
+
+    async backtestOptimize(params: BacktestOptimizeParams): Promise<BacktestOptimizeResult | null> {
+        const payload: Record<string, any> = {
+            stock_code: params.stockCode,
+            strategy: params.strategy,
+            start_date: params.startDate,
+            end_date: params.endDate,
+            initial_capital: params.initialCapital ?? 100000,
+            param_grid: params.paramGrid ?? { short_window: [5, 10], long_window: [20, 30] },
+            top_n: params.topN ?? 10,
+        };
+        const response = await this.client.post<ApiResponse<any>>('/api/v1/backtest/optimize', payload);
+        if (!response.data.data) {
+            return null;
+        }
+        const d = response.data.data;
+        return {
+            stockCode: d.stock_code,
+            strategy: d.strategy,
+            startDate: d.start_date,
+            endDate: d.end_date,
+            bestParams: d.best_params || {},
+            results: (d.results || []).map((r: any) => ({
+                params: r.params || {},
+                totalReturnPercent: r.total_return_percent,
+                sharpeRatio: r.sharpe_ratio,
+                maxDrawdown: r.max_drawdown,
+                winRate: r.win_rate,
+                totalTrades: r.total_trades,
             })),
         };
     }
@@ -388,6 +420,15 @@ export class ApiClient {
             throw new Error(response.data.message || '获取账户信息失败');
         }
         return response.data.data;
+    }
+
+    /** 导出交易记录为 CSV，返回文件二进制内容 */
+    async exportTrades(format: 'csv', type: 'orders' | 'positions' | 'all'): Promise<ArrayBuffer> {
+        const response = await this.client.get('/api/v1/trade/export', {
+            params: { format, type },
+            responseType: 'arraybuffer',
+        });
+        return response.data as ArrayBuffer;
     }
 
     async runStrategyTest(params: StrategyTestParams): Promise<StrategyTestResult> {

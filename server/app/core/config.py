@@ -32,10 +32,14 @@ class Settings(BaseSettings):
     TUSHARE_TOKEN: Optional[str] = None
     ALPHA_VANTAGE_API_KEY: Optional[str] = None
     
-    # 券商API配置
+    # 交易模式：sim=模拟交易, live=实盘（需配置 BROKER_API_URL）
+    TRADING_MODE: str = "sim"
+    # 券商API配置（实盘时使用）
     BROKER_API_URL: Optional[str] = None
     BROKER_API_KEY: Optional[str] = None
     BROKER_API_SECRET: Optional[str] = None
+    # 实盘时是否随后端自动启动券商网关（evolving，仅当 BROKER_API_URL 为本地 7070 时生效）
+    AUTO_START_BROKER_GATEWAY: bool = False
     
     # 数据库配置
     DB_PATH: str = "./data/quant_free.db"

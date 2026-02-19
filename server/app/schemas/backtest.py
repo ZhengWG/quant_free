@@ -56,3 +56,34 @@ class BacktestResult(BaseModel):
     total_trades: int
     trades: List[BacktestTrade] = []
     price_series: List[PricePoint] = []
+
+
+class BacktestOptimizeParams(BaseModel):
+    """参数优化请求"""
+    stock_code: str
+    strategy: str = "ma_cross"
+    start_date: str
+    end_date: str
+    initial_capital: float = 100000.0
+    param_grid: dict = {}  # e.g. {"short_window": [5, 10], "long_window": [20, 30], "stop_loss_pct": [0.05, 0.08]}
+    top_n: int = 10  # 返回前 N 组最优结果
+
+
+class BacktestOptimizeItem(BaseModel):
+    """单组参数的回测结果"""
+    params: dict
+    total_return_percent: float
+    sharpe_ratio: float
+    max_drawdown: float
+    win_rate: float
+    total_trades: int
+
+
+class BacktestOptimizeResult(BaseModel):
+    """参数优化结果"""
+    stock_code: str
+    strategy: str
+    start_date: str
+    end_date: str
+    best_params: dict
+    results: List[BacktestOptimizeItem]

@@ -4,7 +4,7 @@
 
 import * as vscode from 'vscode';
 import { ApiClient } from '../services/apiClient';
-import { Strategy, BacktestParams, BacktestResult } from '../types/strategy';
+import { Strategy, BacktestParams, BacktestResult, BacktestOptimizeResult } from '../types/strategy';
 
 class StrategyItem extends vscode.TreeItem {
     constructor(
@@ -245,6 +245,110 @@ export class StrategyView {
             this.outputChannel.appendLine(`\n错误：${message}`);
             vscode.window.showErrorMessage(`回测失败：${message}`);
         }
+    }
+
+    async runBacktestOptimize(code: string): Promise<void> {
+        const strategyPick = await vscode.window.showQuickPick(
+            [
+                { label: 'MA均线交叉', value: 'ma_cross', description: '双均线金叉死叉策略' },
+                { label: 'MACD', value: 'macd', description: 'MACD指标策略' },
+                { label: 'KDJ', value: 'kdj', description: 'KDJ随机指标策略' },
+                { label: 'RSI', value: 'rsi', description: 'RSI超买超卖策略' },
+                { label: '布林带', value: 'bollinger', description: '布林带突破策略' },
+            ],
+            { placeHolder: '请选择要优化的策略' }
+        );
+        if (!strategyPick) { return; }
+
+        const startDate = await vscode.window.showInputBox({
+            prompt: '回测开始日期',
+            placeHolder: 'YYYY-MM-DD',
+            value: '2024-01-01',
+            validateInput: (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) ? null : '请输入 YYYY-MM-DD'
+        });
+        if (!startDate) { return; }
+
+        const endDate = await vscode.window.showInputBox({
+            prompt: '回测结束日期',
+            placeHolder: 'YYYY-MM-DD',
+            value: '2024-12-31',
+            validateInput: (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) ? null : '请输入 YYYY-MM-DD'
+        });
+        if (!endDate) { return; }
+
+        this.outputChannel.show();
+        this.outputChannel.appendLine(`\n策略参数优化 ${code} [${strategyPick.value}] ${startDate} ~ ${endDate} ...`);
+
+        try {
+            const result = await this.apiClient.backtestOptimize({
+                stockCode: code,
+                strategy: strategyPick.value,
+                startDate,
+                endDate,
+                paramGrid: { short_window: [5, 10], long_window: [20, 30] },
+                topN: 10,
+            });
+
+            if (!result || result.results.length === 0) {
+                this.outputChannel.appendLine('未得到有效优化结果（可能无交易或K线不足）');
+                vscode.window.showWarningMessage('参数优化未得到有效结果');
+                return;
+            }
+
+            this.outputChannel.appendLine(`共 ${result.results.length} 组结果，按夏普比率排序`);
+            this.outputChannel.appendLine('最优参数：' + JSON.stringify(result.bestParams));
+            vscode.window.showInformationMessage(`参数优化完成，最优夏普：${result.results[0].sharpeRatio.toFixed(4)}`);
+            this.showOptimizeWebView(result);
+        } catch (error: any) {
+            const message = error.response?.data?.detail || error.message || '参数优化失败';
+            this.outputChannel.appendLine(`\n错误：${message}`);
+            vscode.window.showErrorMessage(`参数优化失败：${message}`);
+        }
+    }
+
+    private showOptimizeWebView(result: BacktestOptimizeResult): void {
+        const panel = vscode.window.createWebviewPanel(
+            'quantFreeBacktestOptimize',
+            `参数优化 - ${result.stockCode} [${result.strategy}]`,
+            vscode.ViewColumn.One,
+            { enableScripts: true }
+        );
+        panel.webview.html = this.getOptimizeHtml(result);
+    }
+
+    private getOptimizeHtml(result: BacktestOptimizeResult): string {
+        const rows = result.results.map((r, i) => {
+            const paramsStr = Object.entries(r.params).map(([k, v]) => `${k}=${v}`).join(', ');
+            return `<tr>
+                <td>${i + 1}</td>
+                <td>${paramsStr}</td>
+                <td>${r.totalReturnPercent.toFixed(2)}%</td>
+                <td>${r.sharpeRatio.toFixed(4)}</td>
+                <td>${r.maxDrawdown.toFixed(2)}%</td>
+                <td>${r.winRate.toFixed(2)}%</td>
+                <td>${r.totalTrades}</td>
+            </tr>`;
+        }).join('');
+        return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>参数优化结果</title>
+<style>
+body { font-family: var(--vscode-font-family); padding: 1rem; }
+h2 { margin-top: 0; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid var(--vscode-panel-border); padding: 6px 10px; text-align: left; }
+th { background: var(--vscode-editor-inactiveSelectionBackground); }
+</style>
+</head>
+<body>
+<h2>参数优化结果 - ${result.stockCode} [${result.strategy}]</h2>
+<p>区间：${result.startDate} ~ ${result.endDate}，按夏普比率排序，最优参数：<code>${JSON.stringify(result.bestParams)}</code></p>
+<table>
+<thead><tr><th>#</th><th>参数</th><th>收益率%</th><th>夏普</th><th>最大回撤%</th><th>胜率%</th><th>交易次数</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>
+</body>
+</html>`;
     }
 
     private showBacktestWebView(result: BacktestResult): void {

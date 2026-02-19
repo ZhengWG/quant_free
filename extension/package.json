@@ -77,6 +77,16 @@
         "category": "QuantFree"
       },
       {
+        "command": "quantFree.backtestOptimize",
+        "title": "策略参数优化",
+        "category": "QuantFree"
+      },
+      {
+        "command": "quantFree.exportTrades",
+        "title": "导出交易记录",
+        "category": "QuantFree"
+      },
+      {
         "command": "quantFree.openConfig",
         "title": "打开配置",
         "category": "QuantFree"

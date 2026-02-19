@@ -1,5 +1,6 @@
 """
-交易执行服务（模拟交易模式 - 含滑点、手续费）
+交易执行服务（支持模拟 / 实盘切换）
+模拟：滑点、手续费、本地库；实盘：通过 BrokerAdapter 调用券商网关，成交结果落库便于导出。
 """
 
 import uuid
@@ -11,6 +12,7 @@ from sqlalchemy import select
 
 from app.schemas.trade import Order, OrderCreate, Position, AccountInfo
 from app.core.database import AsyncSessionLocal
+from app.core.config import settings
 from app.models.order import Order as OrderModel
 from app.models.position import Position as PositionModel
 from app.services.market_data_service import MarketDataService
@@ -26,10 +28,17 @@ TRANSFER_FEE_RATE = 0.00001    # 过户费 0.001%
 
 
 class TradeService:
-    """交易执行服务（模拟交易）"""
+    """交易执行服务（模拟 / 实盘）"""
 
     def __init__(self):
         self.market_service = MarketDataService()
+        self._broker = None
+        if getattr(settings, "TRADING_MODE", "sim") == "live" and settings.BROKER_API_URL:
+            from app.adapters.broker.generic_http import GenericHttpBrokerAdapter
+            self._broker = GenericHttpBrokerAdapter(settings.BROKER_API_URL)
+
+    def _is_live(self) -> bool:
+        return self._broker is not None
 
     def _calculate_fees(self, order_type: str, fill_price: float, quantity: int) -> dict:
         """
@@ -86,31 +95,37 @@ class TradeService:
         return None
 
     async def place_order(self, order: OrderCreate) -> Order:
-        """提交订单"""
+        """提交订单（模拟或实盘）"""
+        if self._is_live():
+            return await self._place_order_live(order)
+        return await self._place_order_simulated(order)
+
+    async def _place_order_live(self, order: OrderCreate) -> Order:
+        """实盘：调用券商网关，结果落库"""
+        result = await self._broker.place_order(order)
+        await self._save_order(result)
+        logger.info(f"Live order filled: {result.type} {result.stock_code} x{result.quantity} @{result.filled_price}")
+        return result
+
+    async def _place_order_simulated(self, order: OrderCreate) -> Order:
+        """模拟：滑点、手续费、落库、更新持仓"""
         try:
             order_id = str(uuid.uuid4())
             now = datetime.now()
 
-            # 确定成交价
             if order.order_type == "MARKET":
-                # 市价单: 获取实时价格
                 market_price = await self._get_market_price(order.stock_code)
                 if not market_price:
                     raise ValueError(f"无法获取 {order.stock_code} 实时行情，市价单失败")
                 base_price = market_price
             else:
-                # 限价单: 使用指定价格
                 if not order.price or order.price <= 0:
                     raise ValueError("限价单必须指定价格")
                 base_price = order.price
 
-            # 模拟滑点
             fill_price, slip_pct = self._apply_slippage(base_price, order.type)
-
-            # 计算费用
             fees = self._calculate_fees(order.type, fill_price, order.quantity)
 
-            # 卖出前检查持仓
             if order.type == "SELL":
                 has_position = await self._check_position(order.stock_code, order.quantity)
                 if not has_position:
@@ -136,16 +151,13 @@ class TradeService:
                 updated_at=now,
             )
 
-            # 保存订单
             await self._save_order(new_order)
-            # 更新持仓
             await self._update_position(new_order)
 
             logger.info(
                 f"Order filled: {order.type} {order.stock_code} x{order.quantity} "
                 f"@{fill_price} (slip:{slip_pct}%) fee:¥{fees['total_fee']}"
             )
-
             return new_order
         except ValueError:
             raise
@@ -154,8 +166,10 @@ class TradeService:
             raise
 
     async def cancel_order(self, order_id: str) -> bool:
-        """撤销订单"""
+        """撤销订单（模拟改状态，实盘调券商）"""
         try:
+            if self._is_live():
+                return await self._broker.cancel_order(order_id)
             async with AsyncSessionLocal() as session:
                 order = await session.get(OrderModel, order_id)
                 if order and order.status == "PENDING":
@@ -183,8 +197,10 @@ class TradeService:
             raise
 
     async def get_positions(self) -> List[Position]:
-        """查询持仓（用实时行情估值）"""
+        """查询持仓（实盘来自券商，模拟用实时行情估值）"""
         try:
+            if self._is_live():
+                return await self._broker.get_positions()
             async with AsyncSessionLocal() as session:
                 stmt = select(PositionModel).where(PositionModel.quantity > 0)
                 result = await session.execute(stmt)
@@ -230,8 +246,10 @@ class TradeService:
             raise
 
     async def get_account_info(self) -> AccountInfo:
-        """查询账户信息"""
+        """查询账户信息（实盘来自券商，模拟本地计算）"""
         try:
+            if self._is_live():
+                return await self._broker.get_account()
             positions = await self.get_positions()
             market_value = sum(p.market_value for p in positions)
 
@@ -315,6 +333,51 @@ class TradeService:
                     position.realized_profit = (position.realized_profit or 0) + realized
 
             await session.commit()
+
+    async def export_orders(self) -> List[dict]:
+        """导出订单为可序列化列表（用于 CSV 等）"""
+        orders = await self.get_orders()
+        return [
+            {
+                "id": o.id,
+                "stock_code": o.stock_code,
+                "stock_name": o.stock_name,
+                "type": o.type,
+                "order_type": o.order_type,
+                "price": o.price,
+                "quantity": o.quantity,
+                "status": o.status,
+                "filled_quantity": o.filled_quantity,
+                "filled_price": o.filled_price,
+                "stamp_tax": o.stamp_tax,
+                "commission": o.commission,
+                "transfer_fee": o.transfer_fee,
+                "total_fee": o.total_fee,
+                "slippage": o.slippage,
+                "created_at": o.created_at.isoformat() if o.created_at else "",
+                "updated_at": o.updated_at.isoformat() if o.updated_at else "",
+            }
+            for o in orders
+        ]
+
+    async def export_positions(self) -> List[dict]:
+        """导出持仓为可序列化列表（用于 CSV 等）"""
+        positions = await self.get_positions()
+        return [
+            {
+                "stock_code": p.stock_code,
+                "stock_name": p.stock_name,
+                "quantity": p.quantity,
+                "cost_price": p.cost_price,
+                "current_price": p.current_price,
+                "market_value": p.market_value,
+                "profit": p.profit,
+                "profit_percent": p.profit_percent,
+                "total_fees": p.total_fees,
+                "realized_profit": p.realized_profit,
+            }
+            for p in positions
+        ]
 
     async def _save_order(self, order: Order):
         """保存订单到数据库"""

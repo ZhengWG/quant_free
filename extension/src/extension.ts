@@ -85,6 +85,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 await strategyView?.runBacktest(code);
             }
         }),
+        vscode.commands.registerCommand('quantFree.backtestOptimize', async () => {
+            const code = await vscode.window.showInputBox({
+                prompt: '请输入股票代码',
+                placeHolder: '例如：000001'
+            });
+            if (code) {
+                await strategyView?.runBacktestOptimize(code);
+            }
+        }),
         vscode.commands.registerCommand('quantFree.smartScreen', async () => {
             await smartScreenView?.run();
         }),
@@ -93,6 +102,31 @@ export async function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('quantFree.strategyTest', async () => {
             await strategyTestView?.run();
+        }),
+        vscode.commands.registerCommand('quantFree.exportTrades', async () => {
+            const typePick = await vscode.window.showQuickPick(
+                [
+                    { label: '订单', value: 'orders' as const, description: '导出所有订单记录' },
+                    { label: '持仓', value: 'positions' as const, description: '导出当前持仓' },
+                    { label: '全部', value: 'all' as const, description: '订单 + 持仓' },
+                ],
+                { placeHolder: '选择导出类型' }
+            );
+            if (!typePick) { return; }
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(`trades_${typePick.value}_${Date.now()}.csv`),
+                filters: { CSV: ['csv'] },
+            });
+            if (!uri) { return; }
+            try {
+                const buf = await apiClient?.exportTrades('csv', typePick.value);
+                if (buf) {
+                    await vscode.workspace.fs.writeFile(uri, new Uint8Array(buf));
+                    vscode.window.showInformationMessage(`已导出: ${uri.fsPath}`);
+                }
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`导出失败: ${e.response?.data?.detail || e.message}`);
+            }
         }),
         vscode.commands.registerCommand('quantFree.openConfig', async () => {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'quantFree');

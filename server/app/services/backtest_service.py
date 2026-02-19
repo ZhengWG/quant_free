@@ -6,12 +6,16 @@
 - 指标在完整 K 线上计算（含 warmup），交易区间只在用户指定日期内
 """
 
+import itertools
 import math
 import uuid
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any
 from loguru import logger
 
-from app.schemas.backtest import BacktestParams, BacktestResult, BacktestTrade, PricePoint
+from app.schemas.backtest import (
+    BacktestParams, BacktestResult, BacktestTrade, PricePoint,
+    BacktestOptimizeParams, BacktestOptimizeResult, BacktestOptimizeItem,
+)
 from app.adapters.market.sina_adapter import SinaAdapter
 
 # ==================== 全局参数 ====================
@@ -71,6 +75,105 @@ class BacktestService:
         except Exception as e:
             logger.warning(f"Backtest sync error {params.stock_code}/{params.strategy}: {e}")
             return None
+
+    async def run_optimize(self, params: BacktestOptimizeParams) -> BacktestOptimizeResult:
+        """参数网格搜索，返回按夏普排序的 top_n 组结果"""
+        from datetime import datetime
+        try:
+            d_start = datetime.strptime(params.start_date, "%Y-%m-%d")
+            d_end = datetime.strptime(params.end_date, "%Y-%m-%d")
+            days_span = (d_end - d_start).days
+        except ValueError:
+            days_span = 600
+        needed = max(400, int(days_span * 0.75) + TREND_MA_LEN + ATR_PERIOD + 50)
+        kline_data = await self.adapter.get_kline_data(params.stock_code, scale=240, datalen=needed)
+        if not kline_data or len(kline_data) < 60:
+            return BacktestOptimizeResult(
+                stock_code=params.stock_code,
+                strategy=params.strategy,
+                start_date=params.start_date,
+                end_date=params.end_date,
+                best_params={},
+                results=[],
+            )
+
+        keys = list(params.param_grid.keys())
+        values = list(params.param_grid.values())
+        if not keys:
+            single = BacktestParams(
+                stock_code=params.stock_code,
+                strategy=params.strategy,
+                start_date=params.start_date,
+                end_date=params.end_date,
+                initial_capital=params.initial_capital,
+            )
+            res = self.run_backtest_sync(single, kline_data)
+            if res:
+                return BacktestOptimizeResult(
+                    stock_code=params.stock_code,
+                    strategy=params.strategy,
+                    start_date=params.start_date,
+                    end_date=params.end_date,
+                    best_params={},
+                    results=[
+                        BacktestOptimizeItem(
+                            params={},
+                            total_return_percent=res.total_return_percent,
+                            sharpe_ratio=res.sharpe_ratio,
+                            max_drawdown=res.max_drawdown,
+                            win_rate=res.win_rate,
+                            total_trades=res.total_trades,
+                        )
+                    ],
+                )
+            return BacktestOptimizeResult(
+                stock_code=params.stock_code, strategy=params.strategy,
+                start_date=params.start_date, end_date=params.end_date,
+                best_params={}, results=[],
+            )
+
+        allowed = {"short_window", "long_window", "stop_loss_pct", "trailing_stop_pct",
+                   "risk_per_trade", "max_position_pct", "trend_ma_len", "cooldown_bars"}
+        collected: List[Tuple[Dict[str, Any], BacktestResult]] = []
+        for combo in itertools.product(*values):
+            kw = dict(zip(keys, combo))
+            bp_kw: Dict[str, Any] = {
+                "stock_code": params.stock_code,
+                "strategy": params.strategy,
+                "start_date": params.start_date,
+                "end_date": params.end_date,
+                "initial_capital": params.initial_capital,
+            }
+            for k, v in kw.items():
+                if k in allowed and v is not None:
+                    bp_kw[k] = v
+            bp = BacktestParams(**bp_kw)
+            result = self.run_backtest_sync(bp, kline_data)
+            if result and result.total_trades > 0:
+                collected.append((kw, result))
+
+        collected.sort(key=lambda x: (x[1].sharpe_ratio, x[1].total_return_percent), reverse=True)
+        top = collected[: params.top_n]
+        best_params = top[0][0] if top else {}
+        results = [
+            BacktestOptimizeItem(
+                params=p,
+                total_return_percent=r.total_return_percent,
+                sharpe_ratio=r.sharpe_ratio,
+                max_drawdown=r.max_drawdown,
+                win_rate=r.win_rate,
+                total_trades=r.total_trades,
+            )
+            for p, r in top
+        ]
+        return BacktestOptimizeResult(
+            stock_code=params.stock_code,
+            strategy=params.strategy,
+            start_date=params.start_date,
+            end_date=params.end_date,
+            best_params=best_params,
+            results=results,
+        )
 
     # ==================== 核心引擎 ====================
 

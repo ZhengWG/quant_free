@@ -80,6 +80,34 @@ export interface BacktestResult {
     priceSeries: PricePoint[];
 }
 
+export interface BacktestOptimizeParams {
+    stockCode: string;
+    strategy: string;
+    startDate: string;
+    endDate: string;
+    initialCapital?: number;
+    paramGrid?: Record<string, number[]>;  // e.g. { short_window: [5, 10], long_window: [20, 30] }
+    topN?: number;
+}
+
+export interface BacktestOptimizeItem {
+    params: Record<string, number>;
+    totalReturnPercent: number;
+    sharpeRatio: number;
+    maxDrawdown: number;
+    winRate: number;
+    totalTrades: number;
+}
+
+export interface BacktestOptimizeResult {
+    stockCode: string;
+    strategy: string;
+    startDate: string;
+    endDate: string;
+    bestParams: Record<string, number>;
+    results: BacktestOptimizeItem[];
+}
+
 export interface SmartScreenParams {
     stockPool: string;
     customCodes?: string;

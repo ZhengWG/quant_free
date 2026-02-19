@@ -5,7 +5,7 @@
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
-from app.schemas.backtest import BacktestParams, BacktestResult
+from app.schemas.backtest import BacktestParams, BacktestResult, BacktestOptimizeParams, BacktestOptimizeResult
 from app.schemas.screening import SmartScreenParams, SmartScreenResult
 from app.schemas.prediction import PredictionParams, PredictionResult
 from app.schemas.strategy_test import StrategyTestParams, StrategyTestResult
@@ -36,6 +36,17 @@ async def run_backtest(params: BacktestParams):
         return ApiResponse(success=True, data=result)
     except Exception as e:
         logger.error(f"Run backtest error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/optimize", response_model=ApiResponse[BacktestOptimizeResult])
+async def optimize_backtest(params: BacktestOptimizeParams):
+    """策略参数网格搜索，返回按夏普排序的 top_n 结果"""
+    try:
+        result = await backtest_service.run_optimize(params)
+        return ApiResponse(success=True, data=result)
+    except Exception as e:
+        logger.error(f"Backtest optimize error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

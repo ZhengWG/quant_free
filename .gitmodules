@@ -1,0 +1,4 @@
+# evolving 子模块：建议固定 commit，勿用 git submodule update --remote 随意拉取上游，以免与 ascmds_adapter 等不兼容
+[submodule "broker_gateway/evolving_repo"]
+	path = broker_gateway/evolving_repo
+	url = https://github.com/zetatez/evolving.git
