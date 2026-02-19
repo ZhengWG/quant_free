@@ -1,36 +1,21 @@
-# QuantFree Extension
+# QuantFree 插件
 
-VSCode插件前端部分
+VSCode/Cursor 前端，提供行情、策略、交易、选股、预测等视图与命令。
 
 ## 开发
 
 ```bash
-# 安装依赖
 npm install
-
-# 编译
-npm run compile
-
-# 监听模式（自动编译）
-npm run watch
-
-# 打包插件
-npm run package
+npm run compile    # 或 npm run watch 监听编译
+npm run package    # 打包 .vsix
 ```
 
-## 调试
+调试：在编辑器中打开项目根目录，按 F5 启动 Extension Development Host，在新窗口中使用插件。
 
-1. 在VSCode中打开此目录
-2. 按 `F5` 启动调试
-3. 会打开一个新的VSCode窗口（Extension Development Host）
-4. 在新窗口中测试插件功能
+## 结构
 
-## 项目结构
-
-- `src/extension.ts` - 插件入口
-- `src/commands/` - 命令处理
-- `src/views/` - UI视图
-- `src/services/` - 前端服务
-- `src/types/` - 类型定义
-- `src/utils/` - 工具函数
+- `src/extension.ts` 入口，注册命令与视图
+- `src/views/` 行情、策略、交易、智能选股、预测、策略测试等
+- `src/services/` ApiClient、WebSocketClient、StorageService
+- `src/types/`、`src/utils/`
 

@@ -413,70 +413,53 @@ curl -X POST http://localhost:3000/api/v1/strategy/generate \
 
 ```
 quant_free/
-├── extension/              # VSCode插件前端（TypeScript）
+├── extension/              # VSCode/Cursor 插件（TypeScript）
 │   ├── src/
-│   │   ├── extension.ts   # 插件入口，注册 11 个命令
-│   │   ├── views/         # MarketDataView, StrategyView, TradeView, SmartScreenView, PredictionView, StrategyTestView
+│   │   ├── extension.ts   # 入口，注册命令与视图
+│   │   ├── views/         # 行情、策略、交易、智能选股、预测、策略测试等
 │   │   ├── services/      # ApiClient, WebSocketClient, StorageService
-│   │   ├── types/         # TypeScript类型定义（含策略、回测、选股、预测、策略测试）
-│   │   └── utils/         # 格式化、验证工具
-│   ├── resources/         # 插件图标
+│   │   ├── types/
+│   │   └── utils/
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── server/                 # 后端服务（Python FastAPI）
+├── server/                 # 后端（Python FastAPI）
 │   ├── app/
-│   │   ├── core/          # 配置、数据库
-│   │   ├── models/        # SQLAlchemy模型（Order, Position, Strategy...）
-│   │   ├── schemas/       # Pydantic（backtest, screening, prediction, strategy_test 等）
-│   │   ├── api/routes/    # market, strategy, trade, backtest（含 run / smart-screen / predict / strategy-test）
-│   │   ├── services/      # 行情、交易、回测、智能选股、预测、策略测试、WebSocket
-│   │   └── adapters/      # 新浪/腾讯/东方财富行情、DeepSeek/OpenAI AI；东方财富 ulist 基本面（PE/PB/ROE/行业等）
-│   ├── main.py            # FastAPI入口
+│   │   ├── core/           # config, database
+│   │   ├── models/         # SQLAlchemy
+│   │   ├── schemas/        # Pydantic
+│   │   ├── api/routes/     # market, strategy, trade, backtest
+│   │   ├── services/
+│   │   └── adapters/       # 行情(sina/tencent/eastmoney)、AI(deepseek/openai)、基本面等
+│   ├── main.py
 │   ├── requirements.txt
-│   └── .env.example       # 环境变量模板
+│   └── .env.example
 │
-├── tests/                  # API测试、WebSocket测试
-├── docs/                   # PRD、架构设计文档
-│   └── images/            # Logo、截图
+├── broker_gateway/         # 券商网关（macOS，evolving + 同花顺）
+│   ├── main.py             # FastAPI，/order、/orders、/positions、/account
+│   ├── evolving_repo/      # Git submodule（evolving）
+│   ├── scripts/            # 如 cliclick macOS15 安装脚本
+│   └── .env.example
+│
+├── tests/
+├── docs/
 └── README.md
 ```
 
 ## 配置说明
 
-### 行情数据源（三源可选，无需Token）
-| 数据源 | 用途 | 说明 |
-|---|---|---|
-| **新浪财经** | 实时行情（默认） | A股、港股实时数据 |
-| **腾讯财经** | K线数据 + 实时行情备用 | 日K/周K/月K历史数据 |
-| **东方财富** | 实时行情备用 | JSON格式，稳定可靠 |
-
-在插件设置中可切换 `quantFree.dataSource`：`auto`（自动容灾）/ `sina` / `tencent` / `eastmoney`
-
-### AI模型配置（可选）
-在 `server/.env` 中配置：
-- **DeepSeek Chat**（推荐）：设置 `DEEPSEEK_API_KEY` 和 `AI_PROVIDER=deepseek`
-- **OpenAI GPT-4**：设置 `OPENAI_API_KEY` 和 `AI_PROVIDER=openai`
-- 未配置时策略生成返回模拟结果
-
-### 交易费率（模拟交易）
-| 费用项 | 费率 | 说明 |
-|---|---|---|
-| 佣金 | 0.025% | 双向收取，最低¥5 |
-| 印花税 | 0.05% | 仅卖出收取 |
-| 过户费 | 0.001% | 双向收取 |
-| 滑点 | ~0.1% | 随机模拟 |
+- **行情**：默认使用新浪/腾讯/东方财富，无需 Token。插件设置 `quantFree.dataSource` 可选 `auto` / `sina` / `tencent` / `eastmoney`。
+- **AI**：`server/.env` 中配置 `DEEPSEEK_API_KEY`、`AI_PROVIDER=deepseek`（或 OpenAI/Claude）；未配置时策略与智选返回模拟结果。
+- **模拟交易费率**：佣金 0.025%（最低 5 元）、印花税 0.05%（仅卖出）、过户费 0.001%、滑点约 0.1%。
 
 ### 实盘交易（macOS + 同花顺）
 
-本仓库自带**券商网关**仅支持 **macOS**，通过 [evolving](https://github.com/zetatez/evolving) 控制同花顺 Mac 版，对接已绑定的券商（中信/平安/浙商/国泰君安/国金/兴业/中金/中泰等，无券商限制可自改 evolving）。
+券商网关仅支持 **macOS**，通过 [evolving](https://github.com/zetatez/evolving) 控制同花顺 Mac 版；财通等券商通过网关内 `ascmds_adapter` 支持，无需改 evolving 子模块。
 
-- **环境**：macOS、同花顺 Mac 版 2.3.1、`brew install cliclick`、配置 `~/.config/evolving/config.xml`，系统权限中开启终端与 osascript 的「辅助功能」「完全磁盘访问」。
-- **evolving**：本仓库通过 **Git Submodule** 集成 [evolving](https://github.com/zetatez/evolving)。克隆时使用 `git clone --recurse-submodules`，或克隆后执行 `git submodule update --init --recursive`，无需再单独克隆 evolving。
-- **启动**：至少手动登录一次券商后，`cd broker_gateway && pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 7070`。
-- **QuantFree 后端**：`server/.env` 中设置 `TRADING_MODE=live`、`BROKER_API_URL=http://127.0.0.1:7070`。
-
-支持市价/限价下单与撤单（合同编号从 GET `/orders` 获取）。
+- **环境**：macOS、同花顺 Mac 版 2.3.1、cliclick（macOS 15 可用 `broker_gateway/scripts/install_cliclick_macos15.sh` 从源码安装）、`~/.config/evolving/config.xml`，系统「辅助功能」「完全磁盘访问」勾选终端与 osascript。
+- **evolving**：以 Git Submodule 集成于 `broker_gateway/evolving_repo`。克隆主仓库后执行 `git submodule update --init --recursive`。
+- **启动**：只需启动后端 `python server/main.py`（或 `cd server && python main.py`）。在 `server/.env` 中设 `TRADING_MODE=live`、`BROKER_API_URL=http://127.0.0.1:7070`、`AUTO_START_BROKER_GATEWAY=1` 时，券商网关会**随 main.py 自动启动**，无需再单独开终端跑 broker_gateway。
+- **撤单**：合同号从 GET `/orders` 获取，再 DELETE `/order/{order_id}`。
 
 ## 开发进度
 
@@ -500,12 +483,12 @@ quant_free/
 - [x] **策略测试**（Walk-Forward 80/20，置信度评分，训练/测试权益曲线与买入持有基准）
 - [x] **预测分析**（多因子评分、拟合度、未来收益预测与乐观/悲观区间）
 
-### 第三阶段（进行中）
-- [x] 实盘交易 API 对接（通用券商抽象层：`TRADING_MODE=live` + `BROKER_API_URL`，HTTP 接口 `/order`、`/orders`、`/positions`、`/account`）
-- [x] 交易记录导出（命令「导出交易记录」：订单/持仓/全部 CSV，UTF-8 BOM）
-- [x] 策略参数优化（命令「策略参数优化」：选择股票/策略/日期，网格搜索 `short_window`/`long_window` 等，按夏普排序 TopN，WebView 结果表）
-- [ ] 多市场扩展（美股实时行情等，港股已支持）
-- [x] 高级技术指标（ADX、OBV 已实现于 `server/app/utils/indicators.py`，可按需接入回测）
+### 第三阶段
+- [x] 实盘交易 API 对接（`TRADING_MODE=live` + `BROKER_API_URL`，macOS + evolving 券商网关）
+- [x] 交易记录导出（命令「导出交易记录」：订单/持仓/全部 CSV）
+- [x] 策略参数优化（命令「策略参数优化」：网格搜索参数，按夏普排序 TopN）
+- [x] 高级技术指标（ADX、OBV，`server/app/utils/indicators.py`）
+- [x] 港股（回测/选股等已支持）；美股未实现
 
 ## 安全说明
 
