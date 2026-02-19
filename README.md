@@ -106,11 +106,15 @@ python main.py
 cd ../extension
 npm install
 npm run compile
+
+# 6. install from VSIX安装插件
+
+# 7. 参照“实盘交易（macOS + 同花顺）”章节安装，支持实盘交易
 ```
 
 ### 运行VSCode插件
 
-在VSCode/Cursor中打开项目根目录，按 `F5` 启动Extension Development Host。
+在VSCode/Cursor中打开项目`extension`目录，按 `F5` 启动Extension Development Host。
 
 ## VSCode插件使用指南
 
@@ -404,7 +408,6 @@ quant_free/
 - **环境**：macOS、同花顺 Mac 版 2.3.1、cliclick（macOS 15 可用 `broker_gateway/scripts/install_cliclick_macos15.sh` 从源码安装）、`~/.config/evolving/config.xml`，系统「辅助功能」「完全磁盘访问」勾选终端。
 - **evolving**：以 Git Submodule 集成于 `broker_gateway/evolving_repo`。克隆主仓库后执行 `git submodule update --init --recursive`。
 - **启动**：只需启动后端 `python server/main.py`（或 `cd server && python main.py`）。在 `server/.env` 中设 `TRADING_MODE=live`、`BROKER_API_URL=http://127.0.0.1:7070`、`AUTO_START_BROKER_GATEWAY=1` 时，券商网关会**随 main.py 自动启动**，无需再单独开终端跑 broker_gateway。
-- **撤单**：合同号从 GET `/orders` 获取，再 DELETE `/order/{order_id}`。
 
 ## 开发进度
 
@@ -430,8 +433,10 @@ quant_free/
 - [x] 实盘交易 API 对接（`TRADING_MODE=live` + `BROKER_API_URL`，macOS + evolving 券商网关）
 - [x] 交易记录导出（命令「导出交易记录」：订单/持仓/全部 CSV）
 - [x] 策略参数优化（后端 API 保留，前端已收敛至单股策略分析 / 批量智能选股）
-- [x] 高级技术指标（ADX、OBV，`server/app/utils/indicators.py`）
 - [x] 港股（回测/选股等已支持）；美股未实现
+- [ ] 高级技术指标（ADX、OBV，`server/app/utils/indicators.py`）
+- [ ] 单股策略分析支持更精细策略搜索
+- [ ] 支持模拟/实盘自动化交易
 
 ## 安全说明
 
