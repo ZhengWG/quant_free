@@ -19,11 +19,10 @@ from app.schemas.prediction import (
 from app.services.backtest_service import BacktestService
 from app.adapters.market.sina_adapter import SinaAdapter
 
-# 复用 screening_service 中的股票池常量
 from app.services.screening_service import (
     HOT_HS_CODES, INDUSTRY_LEADERS_CODES, HOT_HK_CODES,
-    BACKTEST_STRATEGIES,
 )
+from app.services.strategy_constants import BACKTEST_STRATEGIES
 
 # 回测历史窗口：用最近 N 天历史做回测（越近越能反映当前市场环境）
 LOOKBACK_DAYS = 365

@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { ApiClient } from '../services/apiClient';
-import { StrategyTestParams, StrategyTestResult } from '../types/strategy';
+import { StrategyTestParams, StrategyTestResult, StrategyAnalyzeParams, StrategyAnalyzeResult } from '../types/strategy';
 
 export class StrategyTestView {
     private context: vscode.ExtensionContext;
@@ -14,6 +14,72 @@ export class StrategyTestView {
     constructor(context: vscode.ExtensionContext, apiClient: ApiClient) {
         this.context = context;
         this.apiClient = apiClient;
+    }
+
+    /** 单股策略分析：80/20 多策略回测，按评分取 TopK 策略 + 未来收益预测 */
+    async runAnalyze(): Promise<void> {
+        const stockCode = await vscode.window.showInputBox({
+            prompt: '请输入股票代码',
+            placeHolder: '例如：600519, 000858, HK00700',
+            validateInput: v => v.trim() ? null : '请输入股票代码',
+        });
+        if (!stockCode) { return; }
+
+        const now = new Date();
+        const defaultEnd = now.toISOString().slice(0, 10);
+        const rangePick = await vscode.window.showQuickPick(
+            [
+                { label: '近1年', value: '1', description: `${this._dateNYearsAgo(1)} ~ ${defaultEnd}` },
+                { label: '近2年', value: '2', description: `${this._dateNYearsAgo(2)} ~ ${defaultEnd}` },
+                { label: '近3年', value: '3', description: `${this._dateNYearsAgo(3)} ~ ${defaultEnd}` },
+                { label: '近5年', value: '5', description: `${this._dateNYearsAgo(5)} ~ ${defaultEnd}` },
+                { label: '自定义', value: 'custom', description: '手动输入起止日期' },
+            ],
+            { placeHolder: '请选择回测区间' }
+        );
+        if (!rangePick) { return; }
+
+        let startDate: string;
+        let endDate = defaultEnd;
+        if (rangePick.value === 'custom') {
+            const s = await vscode.window.showInputBox({ prompt: '开始日期 (YYYY-MM-DD)', value: this._dateNYearsAgo(3) });
+            if (!s) { return; }
+            const e = await vscode.window.showInputBox({ prompt: '结束日期 (YYYY-MM-DD)', value: defaultEnd });
+            if (!e) { return; }
+            startDate = s; endDate = e;
+        } else {
+            startDate = this._dateNYearsAgo(Number(rangePick.value));
+        }
+
+        const topKPick = await vscode.window.showQuickPick(
+            [
+                { label: 'Top 3', value: 3 },
+                { label: 'Top 5', value: 5 },
+                { label: 'Top 10', value: 10 },
+            ],
+            { placeHolder: '返回评分最高的前 K 个策略', title: '单股策略分析' }
+        );
+        if (!topKPick) { return; }
+
+        const params: StrategyAnalyzeParams = {
+            stockCode: stockCode.trim(),
+            startDate,
+            endDate,
+            trainRatio: 0.8,
+            topK: topKPick.value,
+        };
+
+        await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `单股策略分析 ${params.stockCode} ...`, cancellable: false },
+            async () => {
+                try {
+                    const result = await this.apiClient.runStrategyAnalyze(params);
+                    this._showAnalyzeResult(result);
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(`单股策略分析失败：${e.message || e}`);
+                }
+            }
+        );
     }
 
     async run(): Promise<void> {
@@ -87,6 +153,38 @@ export class StrategyTestView {
             { enableScripts: true },
         );
         panel.webview.html = this._getHtml(result);
+    }
+
+    private _showAnalyzeResult(result: StrategyAnalyzeResult) {
+        const panel = vscode.window.createWebviewPanel(
+            'strategyAnalyzeResult',
+            `单股策略分析 - ${result.stockName}(${result.stockCode})`,
+            vscode.ViewColumn.One,
+            { enableScripts: true },
+        );
+        const asTestResult: StrategyTestResult = {
+            stockCode: result.stockCode,
+            stockName: result.stockName,
+            fullStart: result.fullStart,
+            fullEnd: result.fullEnd,
+            trainRatio: result.trainRatio,
+            totalStrategies: result.strategies.length,
+            avgConfidence: result.strategies.length ? result.strategies.reduce((a, it) => a + it.confidenceScore, 0) / result.strategies.length : 0,
+            bestStrategy: result.strategies[0]?.strategy ?? '',
+            bestStrategyLabel: result.strategies[0]?.strategyLabel ?? '',
+            fullBnhPct: result.fullBnhPct,
+            testBnhPct: result.testBnhPct,
+            timeTakenSeconds: result.timeTakenSeconds,
+            items: result.strategies,
+        };
+        panel.webview.html = this._getAnalyzeHtml(asTestResult, result);
+    }
+
+    private _getAnalyzeHtml(r: StrategyTestResult, _analyze: StrategyAnalyzeResult): string {
+        const base = this._getHtml(r);
+        return base
+            .replace('<h1>📊 策略测试 - ', '<h1>📊 单股策略分析 - ')
+            .replace(`${r.totalStrategies}个策略`, `Top${r.totalStrategies} 策略（按相对收益评分）+ 未来收益预测`);
     }
 
     private _getHtml(r: StrategyTestResult): string {

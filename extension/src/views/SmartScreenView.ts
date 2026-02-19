@@ -1,5 +1,5 @@
 /**
- * 智能选股回测视图
+ * 批量智能选股视图
  */
 
 import * as vscode from 'vscode';
@@ -149,7 +149,7 @@ export class SmartScreenView {
 
         const progressTitle = mode === 'smart_v2'
             ? '综合智选分析中（估值+策略测试+预测）...'
-            : '智能选股回测中...';
+            : '批量智能选股中...';
 
         await vscode.window.withProgress(
             {
@@ -163,8 +163,8 @@ export class SmartScreenView {
                     const result = await this.apiClient.runSmartScreen(params);
                     this.showResultWebView(result);
                 } catch (error: any) {
-                    const message = error.response?.data?.detail || error.message || '智能选股失败';
-                    vscode.window.showErrorMessage(`智能选股失败：${message}`);
+                    const message = error.response?.data?.detail || error.message || '批量智能选股失败';
+                    vscode.window.showErrorMessage(`批量智能选股失败：${message}`);
                 }
             }
         );
@@ -173,7 +173,7 @@ export class SmartScreenView {
     private showResultWebView(result: SmartScreenResult): void {
         const panel = vscode.window.createWebviewPanel(
             'quantFreeSmartScreen',
-            `智能选股结果 - ${result.poolName}`,
+            `批量智能选股结果 - ${result.poolName}`,
             vscode.ViewColumn.One,
             { enableScripts: true }
         );
@@ -337,7 +337,7 @@ export class SmartScreenView {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>智能选股结果</title>
+<title>批量智能选股结果</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -453,7 +453,7 @@ export class SmartScreenView {
 </head>
 <body>
 <div class="header">
-  <h2>${isV2 ? '综合智选结果' : '智能选股结果'}</h2>
+  <h2>${isV2 ? '综合智选结果' : '批量智能选股结果'}</h2>
   <span class="info">${headerInfo}</span>
 </div>
 <div class="overview">

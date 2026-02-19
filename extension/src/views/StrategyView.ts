@@ -1,5 +1,5 @@
 /**
- * 策略推荐视图
+ * 策略推荐视图（AI 评价）
  */
 
 import * as vscode from 'vscode';
@@ -95,7 +95,7 @@ export class StrategyView {
 
     async generateStrategy(code: string): Promise<void> {
         this.outputChannel.show();
-        this.outputChannel.appendLine(`正在为 ${code} 生成策略推荐...`);
+        this.outputChannel.appendLine(`正在为 ${code} 进行 AI 评价...`);
 
         try {
             const strategy = await this.apiClient.generateStrategy({
@@ -105,7 +105,7 @@ export class StrategyView {
             // 更新侧边栏视图
             this.treeProvider.updateStrategy(strategy);
 
-            this.outputChannel.appendLine('\n=== 策略推荐 ===');
+            this.outputChannel.appendLine('\n=== AI 评价 ===');
             this.outputChannel.appendLine(`股票：${strategy.stockName} (${strategy.stockCode})`);
             this.outputChannel.appendLine(`建议：${strategy.action}`);
             if (strategy.targetPrice) {
@@ -119,11 +119,11 @@ export class StrategyView {
             this.outputChannel.appendLine(`持仓周期：${strategy.timeHorizon}`);
             this.outputChannel.appendLine(`\n策略理由：\n${strategy.reasoning}`);
 
-            vscode.window.showInformationMessage(`策略生成成功！建议：${strategy.action}`);
+            vscode.window.showInformationMessage(`AI 评价完成！建议：${strategy.action}`);
         } catch (error: any) {
-            const message = error.response?.data?.detail || error.message || '生成策略失败';
+            const message = error.response?.data?.detail || error.message || 'AI 评价失败';
             this.outputChannel.appendLine(`\n错误：${message}`);
-            vscode.window.showErrorMessage(`生成策略失败：${message}`);
+            vscode.window.showErrorMessage(`AI 评价失败：${message}`);
         }
     }
 

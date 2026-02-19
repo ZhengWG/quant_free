@@ -306,3 +306,26 @@ export interface StrategyTestResult {
     timeTakenSeconds: number;
     items: StrategyTestItem[];
 }
+
+// ---------- 单股策略分析（80/20 多策略 TopK + 未来收益预测）----------
+
+export interface StrategyAnalyzeParams {
+    stockCode: string;
+    startDate: string;
+    endDate: string;
+    initialCapital?: number;
+    trainRatio?: number;
+    topK?: number;
+}
+
+export interface StrategyAnalyzeResult {
+    stockCode: string;
+    stockName: string;
+    fullStart: string;
+    fullEnd: string;
+    trainRatio: number;
+    fullBnhPct: number;
+    testBnhPct: number;
+    timeTakenSeconds: number;
+    strategies: StrategyTestItem[];
+}

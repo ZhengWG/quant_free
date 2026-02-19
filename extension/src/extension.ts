@@ -3,7 +3,6 @@ import { MarketDataView } from './views/MarketDataView';
 import { StrategyView } from './views/StrategyView';
 import { TradeView } from './views/TradeView';
 import { SmartScreenView } from './views/SmartScreenView';
-import { PredictionView } from './views/PredictionView';
 import { StrategyTestView } from './views/StrategyTestView';
 import { ApiClient } from './services/apiClient';
 import { WebSocketClient } from './services/websocketClient';
@@ -13,7 +12,6 @@ let marketDataView: MarketDataView | undefined;
 let strategyView: StrategyView | undefined;
 let tradeView: TradeView | undefined;
 let smartScreenView: SmartScreenView | undefined;
-let predictionView: PredictionView | undefined;
 let strategyTestView: StrategyTestView | undefined;
 let apiClient: ApiClient | undefined;
 let wsClient: WebSocketClient | undefined;
@@ -35,7 +33,6 @@ export async function activate(context: vscode.ExtensionContext) {
     strategyView = new StrategyView(context, apiClient);
     tradeView = new TradeView(context, apiClient, storageService);
     smartScreenView = new SmartScreenView(context, apiClient);
-    predictionView = new PredictionView(context, apiClient);
     strategyTestView = new StrategyTestView(context, apiClient);
 
     // 注册命令
@@ -76,32 +73,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 await marketDataView?.openChart(code);
             }
         }),
-        vscode.commands.registerCommand('quantFree.runBacktest', async () => {
-            const code = await vscode.window.showInputBox({
-                prompt: '请输入股票代码',
-                placeHolder: '例如：000001'
-            });
-            if (code) {
-                await strategyView?.runBacktest(code);
-            }
-        }),
-        vscode.commands.registerCommand('quantFree.backtestOptimize', async () => {
-            const code = await vscode.window.showInputBox({
-                prompt: '请输入股票代码',
-                placeHolder: '例如：000001'
-            });
-            if (code) {
-                await strategyView?.runBacktestOptimize(code);
-            }
-        }),
         vscode.commands.registerCommand('quantFree.smartScreen', async () => {
             await smartScreenView?.run();
         }),
-        vscode.commands.registerCommand('quantFree.prediction', async () => {
-            await predictionView?.run();
-        }),
-        vscode.commands.registerCommand('quantFree.strategyTest', async () => {
-            await strategyTestView?.run();
+        vscode.commands.registerCommand('quantFree.strategyAnalyze', async () => {
+            await strategyTestView?.runAnalyze();
         }),
         vscode.commands.registerCommand('quantFree.exportTrades', async () => {
             const typePick = await vscode.window.showQuickPick(
@@ -161,7 +137,6 @@ export function deactivate() {
     strategyView?.dispose();
     tradeView?.dispose();
     smartScreenView?.dispose();
-    predictionView?.dispose();
     strategyTestView?.dispose();
 }
 

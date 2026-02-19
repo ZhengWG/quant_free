@@ -10,7 +10,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-ZhengWG-181717?style=flat&logo=github)](https://github.com/ZhengWG)
 
 **一款集成在VSCode/Cursor编辑器中的A股交易管理插件**
-**实时行情 · AI策略推荐 · 模拟交易 · K线可视化 · 策略回测 · 智能选股 · 策略测试 · 预测分析**
+**实时行情 · AI评价 · 模拟交易 · K线可视化 · 单股策略分析 · 批量智能选股**
 
 </div>
 
@@ -42,8 +42,8 @@
 - 渐变填充 + 涨跌配色，视觉体验优秀
 - 支持日K / 周K / 月K（腾讯财经API）
 
-### AI策略推荐
-- 集成 **DeepSeek / OpenAI** 大模型，基于实时行情生成个性化策略
+### AI评价
+- 集成 **DeepSeek / OpenAI** 大模型，基于实时行情对个股进行 AI 评价
 - 提供买入 / 卖出 / 持有建议、目标价位、止损位
 - 风险评估与置信度评分，结果直接展示在侧边栏
 - 策略理由详细输出到 OutputChannel
@@ -56,16 +56,14 @@
 - 下单后自动刷新持仓视图
 - 初始模拟资金100万元
 
-### 策略回测
-- 基于真实历史K线数据测试策略
-- 支持**多策略**：均线交叉（MA Cross）、MACD、KDJ、RSI、布林带等，可配置短/长周期
-- 可配置风控参数：止损比例、移动止盈、单笔风险、最大仓位、趋势均线、冷却天数
-- 计算收益率、夏普比率、最大回撤、胜率、交易次数等指标，返回每笔交易明细
-- 支持**港股**（代码如 HK00700）
+### 单股策略分析
+- 输入单只股票与日期区间，按 **80% 训练 / 20% 验证** 做多策略回测
+- 按相对收益评分排序，返回 **TopK 推荐策略** 及**未来收益预测**
+- 支持查看各策略置信度、预测 vs 实际收益、权益曲线与买入持有基准
 
-### 智能选股回测
+### 批量智能选股
 - **经典模式**：技术面筛选（趋势向上/动量/放量突破/RSI超卖/MACD金叉等）+ 多策略回测 + 综合评分排序
-- **综合智选**：估值筛选（池内 PE/PB/ROE/盈利增长 百分位评分）→ AI 基本面分析（DeepSeek，行业相对）→ 策略测试（80/20 Walk-Forward）→ 预测收益 → 复合排名 TopK
+- **综合智选**：估值筛选（池内 PE/PB/ROE/盈利增长 百分位评分）→ AI 基本面分析（DeepSeek）→ 单股策略分析（80/20）→ 预测收益 → 复合排名 TopK
 - 股票池：沪深热门、行业龙头、港股热门、A+港股、自定义代码
 - 结果展示：排行表（行业、PE/PB/ROE、估值分、AI 评分、置信度、预测收益、Alpha、信号）、详情面板（股价走势、买卖标记、收益预测曲线、交易明细）
 
@@ -76,16 +74,6 @@
 *综合智选结果：排行榜（行业/PE/PB/ROE/估值分/AI评分/策略/置信度/预测收益/Alpha/信号）、概览指标与个股详情（含 AI 基本面分析）*
 
 </div>
-
-### 策略测试（Walk-Forward 验证）
-- 选定日期区间，前 80% 作为训练期、后 20% 作为测试期
-- 对多策略分别回测，比较预测收益与实际收益，计算**置信度**（方向准确、收益误差、Alpha 等维度）
-- 支持查看训练/测试权益曲线、买入持有基准、策略对比表
-
-### 预测分析
-- 多因子评分（估值、趋势、动量、波动、成交量）+ 线性拟合 R²
-- 基于历史收益与因子预测未来 N 月收益，给出乐观/悲观区间
-- 结果含历史与预测权益曲线、月度收益统计
 
 ## 快速开始
 
@@ -166,9 +154,9 @@ npm run compile
 → 鼠标悬停查看每日详情
 ```
 
-### 4. AI策略推荐
+### 4. AI评价
 
-命令面板输入：`QuantFree: 生成策略推荐`
+命令面板输入：`QuantFree: AI评价`
 
 ```
 输入股票代码 → 002594
@@ -226,9 +214,20 @@ npm run compile
   ↓ 比亚迪 (002594)    1000股 | 成本¥90.39 | 现价¥90.27 | -0.14%
 ```
 
-### 7. 智能选股回测
+### 7. 单股策略分析
 
-命令面板输入：`QuantFree: 智能选股回测`
+命令面板输入：`QuantFree: 单股策略分析`
+
+```
+输入股票代码 → 600519
+选择回测区间（近1年/2年/3年/5年或自定义）
+选择 TopK（3 / 5 / 10）
+→ 新标签页展示：按相对收益评分排序的 TopK 策略、未来收益预测、置信度与权益曲线
+```
+
+### 8. 批量智能选股
+
+命令面板输入：`QuantFree: 批量智能选股`
 
 ```
 步骤1: 选择模式 → 经典模式 / 综合智选
@@ -241,31 +240,9 @@ npm run compile
 ```
 
 - **经典模式**：先按技术面筛选，再对通过股票做多策略回测，按综合评分排序。
-- **综合智选**：先按池内百分位估值筛选，再经 AI 基本面分析（需配置 DEEPSEEK_API_KEY）、策略测试与预测收益，按复合分排序；表格含行业、PE/PB/ROE、估值分、AI 评分、置信度、预测收益等。
+- **综合智选**：先按池内百分位估值筛选，再经 AI 基本面分析（需配置 DEEPSEEK_API_KEY）、单股策略分析（80/20）与预测收益，按复合分排序；表格含行业、PE/PB/ROE、估值分、AI 评分、置信度、预测收益等。
 
-### 8. 策略测试
-
-命令面板输入：`QuantFree: 策略测试`
-
-```
-输入股票代码 → 600519
-输入开始日期 → 2021-01-01
-输入结束日期 → 2025-12-31
-→ 新标签页展示：训练/测试区间、各策略置信度与收益对比、权益曲线与买入持有基准
-```
-
-用于验证策略在“未见过”的测试期表现，置信度综合方向准确度、收益误差、Alpha 等。
-
-### 9. 预测分析
-
-命令面板输入：`QuantFree: 预测分析`
-
-```
-选择股票池、预测月数(3/6/12)、回测区间
-→ 新标签页展示：多因子评分、预测收益排序、拟合度(R²)、历史与预测权益曲线
-```
-
-### 10. 插件配置
+### 9. 插件配置
 
 命令面板输入：`QuantFree: 打开配置`
 
@@ -348,31 +325,17 @@ curl http://localhost:3000/api/v1/trade/positions
 curl http://localhost:3000/api/v1/trade/account
 ```
 
-### 策略回测
+### 单股策略分析
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/backtest/run \
+curl -X POST http://localhost:3000/api/v1/backtest/analyze \
   -H "Content-Type: application/json" \
-  -d '{"stock_code":"000001","strategy":"ma_cross","start_date":"2025-06-01","end_date":"2026-02-17"}'
+  -d '{"stock_code":"600519","start_date":"2023-01-01","end_date":"2025-12-31","train_ratio":0.8,"top_k":5}'
 ```
 
-```json
-{
-  "success": true,
-  "data": {
-    "total_return_percent": -0.02, "sharpe_ratio": -0.1874,
-    "max_drawdown": 0.51, "win_rate": 66.67, "total_trades": 3,
-    "trades": [
-      {"date": "2025-10-10", "action": "BUY", "price": 11.054, "quantity": 100},
-      {"date": "2025-11-07", "action": "SELL", "price": 10.934, "quantity": 100, "profit": -12.0}
-    ]
-  }
-}
-```
+返回按置信度排序的 TopK 策略及未来收益预测等。
 
-支持的策略：`ma_cross`（均线交叉）、`macd`、`kdj`、`rsi`、`bollinger` 等，可通过参数指定 `short_window`、`long_window` 等。
-
-### 智能选股回测
+### 批量智能选股
 
 ```bash
 # 综合智选模式（估值+AI+策略测试+预测）
@@ -383,25 +346,7 @@ curl -X POST http://localhost:3000/api/v1/backtest/smart-screen \
 
 返回字段包含 `rankings`（行业、PE/PB/ROE、估值分、AI 评分、置信度、预测收益、Alpha、信号）、`all_screened` 筛选明细等。
 
-### 策略测试（Walk-Forward）
-
-```bash
-curl -X POST http://localhost:3000/api/v1/backtest/strategy-test \
-  -H "Content-Type: application/json" \
-  -d '{"stock_code":"600519","start_date":"2021-01-01","end_date":"2025-12-31","train_ratio":0.8}'
-```
-
-返回各策略的训练/测试收益、置信度、预测 vs 实际收益对比等。
-
-### 预测分析
-
-```bash
-curl -X POST http://localhost:3000/api/v1/backtest/predict \
-  -H "Content-Type: application/json" \
-  -d '{"stock_pool":"hot_hs","prediction_months":6,"top_n":10}'
-```
-
-### AI策略生成
+### AI评价（策略生成）
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/strategy/generate \
@@ -416,7 +361,7 @@ quant_free/
 ├── extension/              # VSCode/Cursor 插件（TypeScript）
 │   ├── src/
 │   │   ├── extension.ts   # 入口，注册命令与视图
-│   │   ├── views/         # 行情、策略、交易、智能选股、预测、策略测试等
+│   │   ├── views/         # 行情、策略、交易、批量智能选股、单股策略分析等
 │   │   ├── services/      # ApiClient, WebSocketClient, StorageService
 │   │   ├── types/
 │   │   └── utils/
@@ -456,7 +401,7 @@ quant_free/
 
 券商网关仅支持 **macOS**，通过 [evolving](https://github.com/zetatez/evolving) 控制同花顺 Mac 版；财通等券商通过网关内 `ascmds_adapter` 支持，无需改 evolving 子模块。
 
-- **环境**：macOS、同花顺 Mac 版 2.3.1、cliclick（macOS 15 可用 `broker_gateway/scripts/install_cliclick_macos15.sh` 从源码安装）、`~/.config/evolving/config.xml`，系统「辅助功能」「完全磁盘访问」勾选终端与 osascript。
+- **环境**：macOS、同花顺 Mac 版 2.3.1、cliclick（macOS 15 可用 `broker_gateway/scripts/install_cliclick_macos15.sh` 从源码安装）、`~/.config/evolving/config.xml`，系统「辅助功能」「完全磁盘访问」勾选终端。
 - **evolving**：以 Git Submodule 集成于 `broker_gateway/evolving_repo`。克隆主仓库后执行 `git submodule update --init --recursive`。
 - **启动**：只需启动后端 `python server/main.py`（或 `cd server && python main.py`）。在 `server/.env` 中设 `TRADING_MODE=live`、`BROKER_API_URL=http://127.0.0.1:7070`、`AUTO_START_BROKER_GATEWAY=1` 时，券商网关会**随 main.py 自动启动**，无需再单独开终端跑 broker_gateway。
 - **撤单**：合同号从 GET `/orders` 获取，再 DELETE `/order/{order_id}`。
@@ -469,7 +414,7 @@ quant_free/
 - [x] K线数据和历史行情（腾讯API，日K/周K/月K）
 - [x] AI策略推荐（DeepSeek/OpenAI集成，侧边栏展示）
 - [x] 模拟交易（市价/限价单、滑点、手续费、持仓管理）
-- [x] 策略回测（MA交叉、MACD策略，计算夏普比率等）
+- [x] 回测能力（后端保留 run/optimize 等 API，前端以单股策略分析、批量智能选股为主）
 - [x] 自选股管理（添加/删除，操作反馈提示）
 - [x] WebSocket实时推送架构
 
@@ -478,15 +423,13 @@ quant_free/
 - [x] **多数据源支持**（新浪/腾讯/东方财富，前端可切换，auto自动容灾）
 - [x] **侧边栏丰富化**（策略推荐/持仓信息直接展示在侧边栏 TreeView）
 - [x] **交互体验优化**（添加自选股反馈、API错误友好提示、下单自动刷新持仓）
-- [x] **策略回测增强**（多策略 MA/MACD/KDJ/RSI/布林带，可配置风控参数，支持港股）
-- [x] **智能选股回测**（经典模式技术面筛选 + 综合智选：池内百分位估值、AI 基本面、策略测试、预测收益、行业列）
-- [x] **策略测试**（Walk-Forward 80/20，置信度评分，训练/测试权益曲线与买入持有基准）
-- [x] **预测分析**（多因子评分、拟合度、未来收益预测与乐观/悲观区间）
+- [x] **单股策略分析**（80/20 多策略回测，TopK 推荐 + 未来收益预测）
+- [x] **批量智能选股**（经典模式技术面筛选 + 综合智选：池内百分位估值、AI 基本面、单股策略分析、预测收益、行业列）
 
 ### 第三阶段
 - [x] 实盘交易 API 对接（`TRADING_MODE=live` + `BROKER_API_URL`，macOS + evolving 券商网关）
 - [x] 交易记录导出（命令「导出交易记录」：订单/持仓/全部 CSV）
-- [x] 策略参数优化（命令「策略参数优化」：网格搜索参数，按夏普排序 TopN）
+- [x] 策略参数优化（后端 API 保留，前端已收敛至单股策略分析 / 批量智能选股）
 - [x] 高级技术指标（ADX、OBV，`server/app/utils/indicators.py`）
 - [x] 港股（回测/选股等已支持）；美股未实现
 
@@ -517,6 +460,7 @@ quant_free/
 本项目参考了以下优秀项目：
 - [leek-fund](https://github.com/giscafer/leek-fund) - VSCode股票查看插件
 - [FinRL](https://github.com/AI4Finance-Foundation/FinRL) - 强化学习量化交易框架
+- [evolving](https://github.com/zetatez/evolving) - MacOS下控制同花顺进行交易
 
 ## 联系方式
 

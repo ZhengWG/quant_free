@@ -38,7 +38,7 @@
       },
       {
         "command": "quantFree.generateStrategy",
-        "title": "生成策略推荐",
+        "title": "AI评价",
         "category": "QuantFree"
       },
       {
@@ -57,28 +57,13 @@
         "category": "QuantFree"
       },
       {
-        "command": "quantFree.runBacktest",
-        "title": "策略回测",
-        "category": "QuantFree"
-      },
-      {
         "command": "quantFree.smartScreen",
-        "title": "智能选股回测",
+        "title": "批量智能选股",
         "category": "QuantFree"
       },
       {
-        "command": "quantFree.prediction",
-        "title": "预测分析",
-        "category": "QuantFree"
-      },
-      {
-        "command": "quantFree.strategyTest",
-        "title": "策略测试（置信度评估）",
-        "category": "QuantFree"
-      },
-      {
-        "command": "quantFree.backtestOptimize",
-        "title": "策略参数优化",
+        "command": "quantFree.strategyAnalyze",
+        "title": "单股策略分析",
         "category": "QuantFree"
       },
       {
@@ -127,7 +112,7 @@
       },
       {
         "view": "quantFree.strategy",
-        "contents": "暂无策略推荐\n[生成策略推荐](command:quantFree.generateStrategy)"
+        "contents": "暂无策略推荐\n[AI评价](command:quantFree.generateStrategy)"
       },
       {
         "view": "quantFree.trade",

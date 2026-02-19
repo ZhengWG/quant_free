@@ -83,3 +83,28 @@ class StrategyTestResult(BaseModel):
     test_bnh_pct: float = 0.0     # 测试期买入持有收益
     time_taken_seconds: float
     items: List[StrategyTestItem]
+
+
+# ---------- 单股策略分析（收敛接口：80/20 多策略评分 + TopK + 预测收益）----------
+
+class StrategyAnalyzeParams(BaseModel):
+    """单股策略分析参数"""
+    stock_code: str
+    start_date: str              # YYYY-MM-DD
+    end_date: str
+    initial_capital: float = 100000.0
+    train_ratio: float = 0.8     # 训练/验证 划分比例
+    top_k: int = 5               # 返回相对收益评分最高的前 K 个策略
+
+
+class StrategyAnalyzeResult(BaseModel):
+    """单股策略分析结果：按评分排序的 TopK 策略及未来收益预测"""
+    stock_code: str
+    stock_name: str
+    full_start: str
+    full_end: str
+    train_ratio: float
+    full_bnh_pct: float = 0.0     # 全区间买入持有收益
+    test_bnh_pct: float = 0.0     # 验证期买入持有收益
+    time_taken_seconds: float
+    strategies: List[StrategyTestItem]   # 按 confidence_score 降序，取 top_k

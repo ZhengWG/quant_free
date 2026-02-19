@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { ApiResponse } from '../types/common';
 import { Stock, KLineData, HistoryData } from '../types/market';
-import { Strategy, StrategyParams, BacktestParams, BacktestResult, BacktestTrade, BacktestOptimizeParams, BacktestOptimizeResult, SmartScreenParams, SmartScreenResult, RankedResult, ScreenedStock, PredictionParams, PredictionResult, PredictionItem, ProjectedPoint, FundamentalInfo, StrategyTestParams, StrategyTestResult, StrategyTestItem } from '../types/strategy';
+import { Strategy, StrategyParams, BacktestParams, BacktestResult, BacktestTrade, BacktestOptimizeParams, BacktestOptimizeResult, SmartScreenParams, SmartScreenResult, RankedResult, ScreenedStock, PredictionParams, PredictionResult, PredictionItem, ProjectedPoint, FundamentalInfo, StrategyTestParams, StrategyTestResult, StrategyTestItem, StrategyAnalyzeParams, StrategyAnalyzeResult } from '../types/strategy';
 import { Order, Position, AccountInfo } from '../types/trade';
 
 export class ApiClient {
@@ -91,7 +91,7 @@ export class ApiClient {
         };
         const response = await this.client.post<ApiResponse<any>>('/api/v1/strategy/generate', payload);
         if (!response.data.data) {
-            throw new Error(response.data.message || '生成策略失败');
+            throw new Error(response.data.message || 'AI 评价失败');
         }
         // 转换后端 snake_case 响应为前端 camelCase
         const d = response.data.data;
@@ -215,7 +215,7 @@ export class ApiClient {
             timeout: 300000,
         });
         if (!response.data.data) {
-            throw new Error(response.data.message || '智能选股失败');
+            throw new Error(response.data.message || '批量智能选股失败');
         }
         const d = response.data.data;
 
@@ -496,6 +496,72 @@ export class ApiClient {
             testBnhPct: d.test_bnh_pct ?? 0,
             timeTakenSeconds: d.time_taken_seconds,
             items: (d.items || []).map(mapItem),
+        };
+    }
+
+    /** 单股策略分析：80/20 多策略回测，按评分取 TopK，并给出未来收益预测 */
+    async runStrategyAnalyze(params: StrategyAnalyzeParams): Promise<StrategyAnalyzeResult> {
+        const payload: Record<string, any> = {
+            stock_code: params.stockCode,
+            start_date: params.startDate,
+            end_date: params.endDate,
+        };
+        if (params.initialCapital !== undefined) { payload.initial_capital = params.initialCapital; }
+        if (params.trainRatio !== undefined) { payload.train_ratio = params.trainRatio; }
+        if (params.topK !== undefined) { payload.top_k = params.topK; }
+
+        const response = await this.client.post<ApiResponse<any>>('/api/v1/backtest/analyze', payload);
+        if (!response.data.data) {
+            throw new Error(response.data.message || '单股策略分析失败');
+        }
+        const d = response.data.data;
+        const mapPt = (p: any): ProjectedPoint => ({ date: p.date, value: p.value });
+        const mapItem = (it: any): StrategyTestItem => ({
+            strategy: it.strategy,
+            strategyLabel: it.strategy_label,
+            trainStart: it.train_start,
+            trainEnd: it.train_end,
+            testStart: it.test_start,
+            testEnd: it.test_end,
+            trainBars: it.train_bars,
+            testBars: it.test_bars,
+            trainReturnPct: it.train_return_pct,
+            trainSharpe: it.train_sharpe,
+            trainMaxDrawdown: it.train_max_drawdown,
+            trainWinRate: it.train_win_rate,
+            trainTrades: it.train_trades,
+            trainBnhPct: it.train_bnh_pct ?? 0,
+            testBnhPct: it.test_bnh_pct ?? 0,
+            predictedReturnPct: it.predicted_return_pct,
+            predictedDirection: it.predicted_direction,
+            actualReturnPct: it.actual_return_pct,
+            actualSharpe: it.actual_sharpe,
+            actualMaxDrawdown: it.actual_max_drawdown,
+            actualWinRate: it.actual_win_rate,
+            actualTrades: it.actual_trades,
+            actualDirection: it.actual_direction,
+            trainAlphaPct: it.train_alpha_pct ?? 0,
+            testAlphaPct: it.test_alpha_pct ?? 0,
+            directionCorrect: it.direction_correct,
+            returnErrorPct: it.return_error_pct,
+            confidenceScore: it.confidence_score,
+            testHasTrades: it.test_has_trades !== false,
+            trainEquity: (it.train_equity || []).map(mapPt),
+            testEquityPredicted: (it.test_equity_predicted || []).map(mapPt),
+            testEquityActual: (it.test_equity_actual || []).map(mapPt),
+            testEquityBnh: (it.test_equity_bnh || []).map(mapPt),
+            fullPriceSeries: (it.full_price_series || []).map(mapPt),
+        });
+        return {
+            stockCode: d.stock_code,
+            stockName: d.stock_name,
+            fullStart: d.full_start,
+            fullEnd: d.full_end,
+            trainRatio: d.train_ratio,
+            fullBnhPct: d.full_bnh_pct ?? 0,
+            testBnhPct: d.test_bnh_pct ?? 0,
+            timeTakenSeconds: d.time_taken_seconds,
+            strategies: (d.strategies || []).map(mapItem),
         };
     }
 }

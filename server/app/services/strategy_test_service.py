@@ -20,7 +20,7 @@ from app.schemas.strategy_test import (
 )
 from app.services.backtest_service import BacktestService
 from app.adapters.market.sina_adapter import SinaAdapter
-from app.services.screening_service import BACKTEST_STRATEGIES
+from app.services.strategy_constants import BACKTEST_STRATEGIES
 
 
 class StrategyTestService:
@@ -148,6 +148,70 @@ class StrategyTestService:
             avg_confidence=round(avg_conf, 1),
             best_strategy=best.strategy if best else "",
             best_strategy_label=best.strategy_label if best else "",
+            full_bnh_pct=round(full_bnh, 2),
+            test_bnh_pct=round(test_bnh, 2),
+            time_taken_seconds=elapsed,
+            items=items,
+        )
+
+    def run_test_with_kline(
+        self,
+        params: StrategyTestParams,
+        kline: list,
+        stock_name: str,
+    ) -> Optional[StrategyTestResult]:
+        """
+        使用已有 K 线执行策略测试（与 run_test 逻辑一致，供智能选股等复用）。
+        同步方法，无网络 IO。
+        """
+        if not kline or len(kline) < 40:
+            return None
+        start_ts = time.time()
+        filtered = [k for k in kline if params.start_date <= k["date"][:10] <= params.end_date]
+        if len(filtered) < 40 and len(kline) >= 40:
+            filtered = kline
+        split_idx = int(len(filtered) * params.train_ratio)
+        if split_idx < 20 or len(filtered) - split_idx < 5:
+            return None
+        train_kline = filtered[:split_idx]
+        test_kline = filtered[split_idx:]
+        train_start = train_kline[0]["date"][:10]
+        train_end = train_kline[-1]["date"][:10]
+        test_start = test_kline[0]["date"][:10]
+        test_end = test_kline[-1]["date"][:10]
+        train_bars = len(train_kline)
+        test_bars = len(test_kline)
+        train_bnh = self._bnh_return(train_kline)
+        test_bnh = self._bnh_return(test_kline)
+        full_bnh = self._bnh_return(filtered)
+        price_series = self._sample_price_series(filtered)
+        items: List[StrategyTestItem] = []
+        for strategy, short_w, long_w, label in BACKTEST_STRATEGIES:
+            item = self._test_one_strategy(
+                params, strategy, short_w, long_w, label,
+                kline, train_kline, test_kline,
+                train_start, train_end, test_start, test_end,
+                train_bars, test_bars,
+                train_bnh, test_bnh, price_series,
+            )
+            if item is not None:
+                items.append(item)
+        if not items:
+            return None
+        items.sort(key=lambda x: x.confidence_score, reverse=True)
+        avg_conf = sum(it.confidence_score for it in items) / len(items)
+        best = items[0]
+        elapsed = round(time.time() - start_ts, 2)
+        return StrategyTestResult(
+            stock_code=params.stock_code,
+            stock_name=stock_name,
+            full_start=filtered[0]["date"][:10],
+            full_end=filtered[-1]["date"][:10],
+            train_ratio=params.train_ratio,
+            total_strategies=len(items),
+            avg_confidence=round(avg_conf, 1),
+            best_strategy=best.strategy,
+            best_strategy_label=best.strategy_label,
             full_bnh_pct=round(full_bnh, 2),
             test_bnh_pct=round(test_bnh, 2),
             time_taken_seconds=elapsed,

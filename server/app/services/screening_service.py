@@ -16,7 +16,10 @@ from app.schemas.backtest import BacktestParams, BacktestResult
 from app.schemas.screening import (
     SmartScreenParams, SmartScreenResult, ScreenedStock, RankedResult,
 )
+from app.schemas.strategy_test import StrategyTestParams
 from app.services.backtest_service import BacktestService
+from app.services.strategy_test_service import StrategyTestService
+from app.services.strategy_constants import BACKTEST_STRATEGIES
 from app.adapters.market.sina_adapter import SinaAdapter
 from app.core.config import settings
 
@@ -131,17 +134,7 @@ HOT_HK_CODES = [
     "HK01211",  # 比亚迪股份
 ]
 
-# --------------- 回测策略 ---------------
-# (strategy, short_window, long_window, label)
-BACKTEST_STRATEGIES: List[Tuple[str, int, int, str]] = [
-    ("ma_cross", 5, 20, "MA(5,20)"),
-    ("ma_cross", 10, 30, "MA(10,30)"),
-    ("ma_cross", 20, 60, "MA(20,60)"),
-    ("macd", 12, 26, "MACD"),
-    ("kdj", 9, 3, "KDJ"),
-    ("rsi", 14, 0, "RSI(14)"),
-    ("bollinger", 0, 20, "BOLL(20)"),
-]
+# --------------- 回测策略：已迁至 strategy_constants，此处保留别名便于本文件内引用 ---------------
 
 
 class ScreeningService:
@@ -150,6 +143,7 @@ class ScreeningService:
     def __init__(self):
         self.adapter = SinaAdapter()
         self.backtest_service = BacktestService()
+        self.strategy_test_service = StrategyTestService()
 
     async def run_smart_screen(self, params: SmartScreenParams) -> SmartScreenResult:
         """执行智能选股回测"""
@@ -281,227 +275,101 @@ class ScreeningService:
         ai_map = await self._ai_fundamental_analysis(ai_stocks_data)
         logger.info(f"[smart_v2] AI analysis returned for {len(ai_map)} stocks")
 
-        # ---- (c) Walk-forward 策略测试 ----
+        # ---- (c) 单股策略分析（80/20 多策略评分 + 最佳策略），与 POST /backtest/analyze 一致 ----
         candidates: List[dict] = []
         total_backtests = 0
 
         for code, v_score, pe, pb in valuation_passed:
             kline = kline_map.get(code, [])
-            if not kline:
+            if not kline or len(kline) < 40:
                 continue
 
-            filtered = [k for k in kline
-                        if params.start_date <= k["date"][:10] <= params.end_date]
-            if len(filtered) < 40:
-                if len(kline) >= 40:
-                    filtered = kline
-                else:
-                    continue
-
-            split_idx = int(len(filtered) * 0.8)
-            if split_idx < 20 or len(filtered) - split_idx < 5:
+            test_params = StrategyTestParams(
+                stock_code=code,
+                start_date=params.start_date,
+                end_date=params.end_date,
+                initial_capital=params.initial_capital,
+                train_ratio=0.8,
+            )
+            result = self.strategy_test_service.run_test_with_kline(
+                test_params, kline, name_map.get(code, code)
+            )
+            if result is None or not result.items:
                 continue
+            total_backtests += len(result.items)
+            best = result.items[0]
 
-            train_kline = filtered[:split_idx]
-            test_kline = filtered[split_idx:]
-            train_start = train_kline[0]["date"][:10]
-            train_end = train_kline[-1]["date"][:10]
-            test_start = test_kline[0]["date"][:10]
-            test_end = test_kline[-1]["date"][:10]
-            train_bars = len(train_kline)
-            test_bars = len(test_kline)
+            # 预测未来 N 月收益（基于最佳策略的训练期 CAGR）
+            proj_bars = int(params.prediction_months * 21)
+            future_ret = self._predict_return_static(
+                best.train_return_pct, best.train_bars, proj_bars
+            )
+            signal = self._direction_static(future_ret)
 
-            train_bnh = self._bnh_return(train_kline)
-            test_bnh = self._bnh_return(test_kline)
+            # 权益曲线：训练 + 测试（StrategyTestItem 已含 train_equity / test_equity_actual）
+            train_eq = [{"date": p.date, "value": p.value} for p in best.train_equity]
+            last_train_eq = train_eq[-1]["value"] if train_eq else params.initial_capital
+            test_eq_actual = [
+                {"date": p.date, "value": p.value} for p in best.test_equity_actual
+            ]
+            combined_eq = train_eq + test_eq_actual
+            if len(combined_eq) > 200:
+                step = max(1, len(combined_eq) // 200)
+                eq_curve = [combined_eq[j] for j in range(0, len(combined_eq), step)]
+                if eq_curve[-1]["date"] != combined_eq[-1]["date"]:
+                    eq_curve.append(combined_eq[-1])
+            else:
+                eq_curve = combined_eq
 
-            best_conf = -1.0
-            best_item: Optional[dict] = None
+            last_eq = eq_curve[-1]["value"] if eq_curve else params.initial_capital
+            proj_eq = self._build_future_projection(
+                last_eq, future_ret, best.test_end, params.prediction_months
+            )
 
-            for strategy, short_w, long_w, label in BACKTEST_STRATEGIES:
-                common = dict(
-                    stock_code=code,
-                    strategy=strategy,
-                    initial_capital=params.initial_capital,
-                    short_window=short_w,
-                    long_window=long_w,
-                    risk_per_trade=0.08,
-                    max_position_pct=0.95,
-                    stop_loss_pct=0.10,
-                    trailing_stop_pct=0.22,
-                    trend_ma_len=20,
-                    cooldown_bars=1,
-                )
+            full_ps = [{"date": p.date, "close": p.value} for p in best.full_price_series]
+            if len(full_ps) > 250:
+                step = max(1, len(full_ps) // 250)
+                full_ps_sampled = [full_ps[j] for j in range(0, len(full_ps), step)]
+                if full_ps_sampled[-1]["date"] != full_ps[-1]["date"]:
+                    full_ps_sampled.append(full_ps[-1])
+                full_ps = full_ps_sampled
 
-                train_bp = BacktestParams(
-                    start_date=train_start, end_date=train_end, **common
-                )
-                try:
-                    train_result = self.backtest_service.run_backtest_sync(train_bp, kline)
-                except Exception:
-                    total_backtests += 1
-                    continue
-                if train_result is None or train_result.total_trades < 1:
-                    total_backtests += 1
-                    continue
-
-                test_bp = BacktestParams(
-                    start_date=test_start, end_date=test_end, **common
-                )
-                try:
-                    test_result = self.backtest_service.run_backtest_sync(test_bp, kline)
-                except Exception:
-                    total_backtests += 2
-                    continue
-                if test_result is None:
-                    total_backtests += 2
-                    continue
-
-                total_backtests += 2
-                test_has_trades = test_result.total_trades > 0
-                actual_ret = test_result.total_return_percent
-                if not test_has_trades:
-                    actual_ret = test_bnh
-
-                predicted_ret = self._predict_return_static(
-                    train_result.total_return_percent, train_bars, test_bars
-                )
-
-                train_alpha = train_result.total_return_percent - train_bnh
-                test_alpha = actual_ret - test_bnh
-
-                predicted_dir = self._direction_static(predicted_ret)
-                actual_dir = self._direction_static(actual_ret)
-                dir_correct = predicted_dir == actual_dir
-                ret_error = abs(predicted_ret - actual_ret)
-
-                conf = self._calc_confidence_static(
-                    predicted_ret, actual_ret, ret_error, dir_correct,
-                    train_result, test_result,
-                    train_alpha, test_alpha, test_has_trades,
-                )
-
-                if conf > best_conf:
-                    best_conf = conf
-                    best_item = dict(
-                        strategy=strategy,
-                        label=label,
-                        confidence=conf,
-                        train_ret=train_result.total_return_percent,
-                        actual_ret=actual_ret,
-                        predicted_ret=predicted_ret,
-                        train_alpha=train_alpha,
-                        test_alpha=test_alpha,
-                        train_bnh=train_bnh,
-                        test_bnh=test_bnh,
-                        train_result=train_result,
-                        test_result=test_result,
-                        test_has_trades=test_has_trades,
-                        train_bars=train_bars,
-                        test_bars=test_bars,
-                        sharpe=train_result.sharpe_ratio,
-                        max_dd=train_result.max_drawdown,
-                        win_rate=train_result.win_rate,
-                        total_trades=train_result.total_trades + test_result.total_trades,
-                    )
-
-            if best_item is not None:
-                # 预测未来 N 月收益（基于最佳策略的训练期年化 CAGR）
-                proj_bars = int(params.prediction_months * 21)  # ~21 trading days/month
-                future_ret = self._predict_return_static(
-                    best_item["train_ret"], best_item["train_bars"], proj_bars
-                )
-                signal = self._direction_static(future_ret)
-
-                # 构建权益曲线（训练+测试）
-                train_eq = self._build_equity_from_result(
-                    best_item["train_result"], kline,
-                    train_start, train_end, params.initial_capital
-                )
-                last_train_eq = train_eq[-1]["value"] if train_eq else params.initial_capital
-
-                test_eq = self._build_equity_from_result(
-                    best_item["test_result"], kline,
-                    test_start, test_end, params.initial_capital
-                )
-                eq_offset = last_train_eq - params.initial_capital
-                test_eq = [
-                    {"date": p["date"], "value": round(p["value"] + eq_offset, 2)}
-                    for p in test_eq
-                ]
-                eq_curve = train_eq + test_eq
-                if len(eq_curve) > 200:
-                    step = max(1, len(eq_curve) // 200)
-                    sampled = [eq_curve[j] for j in range(0, len(eq_curve), step)]
-                    if sampled[-1]["date"] != eq_curve[-1]["date"]:
-                        sampled.append(eq_curve[-1])
-                    eq_curve = sampled
-
-                # 未来预测权益曲线
-                last_eq = eq_curve[-1]["value"] if eq_curve else params.initial_capital
-                proj_eq = self._build_future_projection(
-                    last_eq, future_ret, test_end, params.prediction_months
-                )
-
-                # 完整价格序列
-                full_ps = [{"date": k["date"][:10], "close": k["close"]} for k in filtered]
-                if len(full_ps) > 250:
-                    step = max(1, len(full_ps) // 250)
-                    full_ps_sampled = [full_ps[j] for j in range(0, len(full_ps), step)]
-                    if full_ps_sampled[-1]["date"] != full_ps[-1]["date"]:
-                        full_ps_sampled.append(full_ps[-1])
-                    full_ps = full_ps_sampled
-
-                # 合并交易记录
-                all_trades_list = []
-                for t in best_item["train_result"].trades:
-                    all_trades_list.append({
-                        "date": t.date, "action": t.action,
-                        "price": t.price, "quantity": t.quantity,
-                        "profit": getattr(t, "profit", None),
-                    })
-                for t in best_item["test_result"].trades:
-                    all_trades_list.append({
-                        "date": t.date, "action": t.action,
-                        "price": t.price, "quantity": t.quantity,
-                        "profit": getattr(t, "profit", None),
-                    })
-
-                ai_info = ai_map.get(code, {})
-                fund = fund_map.get(code, {})
-                candidates.append(dict(
-                    code=code,
-                    name=name_map.get(code, code),
-                    v_score=v_score,
-                    pe=pe,
-                    pb=pb,
-                    roe=fund.get("roe"),
-                    industry=fund.get("industry", ""),
-                    revenue_growth=fund.get("revenue_growth"),
-                    profit_growth=fund.get("profit_growth"),
-                    gross_margin=fund.get("gross_margin"),
-                    ai_score=ai_info.get("ai_score", 50.0),
-                    ai_analysis=ai_info.get("ai_analysis", ""),
-                    ai_signal=ai_info.get("ai_signal", ""),
-                    strategy=best_item["strategy"],
-                    label=best_item["label"],
-                    confidence=best_item["confidence"],
-                    predicted_return=future_ret,
-                    alpha=best_item["test_alpha"],
-                    signal=signal,
-                    train_ret=best_item["train_ret"],
-                    actual_ret=best_item["actual_ret"],
-                    test_bnh=best_item["test_bnh"],
-                    sharpe=best_item["sharpe"],
-                    max_dd=best_item["max_dd"],
-                    win_rate=best_item["win_rate"],
-                    total_trades=best_item["total_trades"],
-                    backtest_result=best_item["train_result"],
-                    equity_curve=eq_curve,
-                    projected_equity=proj_eq,
-                    full_price_series=full_ps,
-                    all_trades=all_trades_list,
-                    split_date=test_start,
-                ))
+            ai_info = ai_map.get(code, {})
+            fund = fund_map.get(code, {})
+            candidates.append(dict(
+                code=code,
+                name=name_map.get(code, code),
+                v_score=v_score,
+                pe=pe,
+                pb=pb,
+                roe=fund.get("roe"),
+                industry=fund.get("industry", ""),
+                revenue_growth=fund.get("revenue_growth"),
+                profit_growth=fund.get("profit_growth"),
+                gross_margin=fund.get("gross_margin"),
+                ai_score=ai_info.get("ai_score", 50.0),
+                ai_analysis=ai_info.get("ai_analysis", ""),
+                ai_signal=ai_info.get("ai_signal", ""),
+                strategy=best.strategy,
+                label=best.strategy_label,
+                confidence=best.confidence_score,
+                predicted_return=future_ret,
+                alpha=best.test_alpha_pct,
+                signal=signal,
+                train_ret=best.train_return_pct,
+                actual_ret=best.actual_return_pct,
+                test_bnh=best.test_bnh_pct,
+                sharpe=best.train_sharpe,
+                max_dd=best.train_max_drawdown,
+                win_rate=best.train_win_rate,
+                total_trades=best.train_trades + best.actual_trades,
+                backtest_result=None,
+                equity_curve=eq_curve,
+                projected_equity=proj_eq,
+                full_price_series=full_ps,
+                all_trades=[],
+                split_date=best.test_start,
+            ))
 
         logger.info(f"[smart_v2] walk-forward done: {len(candidates)} candidates, "
                      f"{total_backtests} backtests")
