@@ -89,4 +89,5 @@ class SmartScreenResult(BaseModel):
     mode: str = "classic"
     test_bnh_pct: Optional[float] = None        # 测试期买入持有基准
     avg_confidence: Optional[float] = None
-    avg_predicted_return: Optional[float] = None
+    avg_predicted_return: Optional[float] = None  # 未来 N 月预测收益均值
+    prediction_months: Optional[int] = None     # 未来收益预测月数（与请求一致，表内预测收益即为此区间）

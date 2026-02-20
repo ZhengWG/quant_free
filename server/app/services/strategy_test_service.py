@@ -394,6 +394,18 @@ class StrategyTestService:
         return projected * 100
 
     @staticmethod
+    def predict_future_return_pct(
+        train_return_pct: float, train_bars: int, prediction_months: int
+    ) -> float:
+        """按训练期 CAGR 外推未来 N 个月的预期收益率%（约 21 交易日/月）。"""
+        if prediction_months < 1 or train_bars < 5:
+            return 0.0
+        future_bars = int(prediction_months * 21)
+        return StrategyTestService._predict_return(
+            train_return_pct, train_bars, future_bars
+        )
+
+    @staticmethod
     def _direction(ret: float) -> str:
         if ret > 3:
             return "看涨"

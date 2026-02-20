@@ -65,6 +65,9 @@ class StrategyTestItem(BaseModel):
     test_equity_actual: List[ProjectedPoint] = []
     test_equity_bnh: List[ProjectedPoint] = []     # 测试期买入持有权益
     full_price_series: List[ProjectedPoint] = []
+    # 单股策略分析：未来 N 月收益预测（按训练期 CAGR 外推）
+    prediction_months: Optional[int] = None        # 预测月数，如 6 表示未来 6 个月
+    predicted_future_return_pct: Optional[float] = None  # 未来该区间的预期收益率%
 
 
 class StrategyTestResult(BaseModel):
@@ -95,6 +98,7 @@ class StrategyAnalyzeParams(BaseModel):
     initial_capital: float = 100000.0
     train_ratio: float = 0.8     # 训练/验证 划分比例
     top_k: int = 5               # 返回相对收益评分最高的前 K 个策略
+    prediction_months: int = 6   # 未来收益预测月数（按训练期 CAGR 外推）
 
 
 class StrategyAnalyzeResult(BaseModel):
@@ -107,4 +111,5 @@ class StrategyAnalyzeResult(BaseModel):
     full_bnh_pct: float = 0.0     # 全区间买入持有收益
     test_bnh_pct: float = 0.0     # 验证期买入持有收益
     time_taken_seconds: float
-    strategies: List[StrategyTestItem]   # 按 confidence_score 降序，取 top_k
+    prediction_months: int = 6     # 未来预测月数（与请求一致）
+    strategies: List[StrategyTestItem]   # 按 confidence_score 降序，取 top_k，含 predicted_future_return_pct

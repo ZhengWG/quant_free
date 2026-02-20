@@ -72,11 +72,12 @@ export class SmartScreenView {
         } else {
             const monthPick = await vscode.window.showQuickPick(
                 [
+                    { label: '默认(6个月)', value: '6', description: '推荐' },
                     { label: '3个月', value: '3' },
                     { label: '6个月', value: '6' },
                     { label: '12个月', value: '12' },
                 ],
-                { placeHolder: '预测未来收益的时间跨度' }
+                { placeHolder: '预测未来收益的时间跨度（可选，默认6个月）' }
             );
             if (!monthPick) { return; }
             predictionMonths = Number(monthPick.value);
@@ -192,9 +193,10 @@ export class SmartScreenView {
             { label: '耗时', value: `${r.timeTakenSeconds}s` },
         ];
         if (isV2) {
+            const predMonths = r.predictionMonths ?? 6;
             overviewCards.push(
                 { label: '平均置信度', value: `${r.avgConfidence ?? 0}`, color: '#ffd54f' },
-                { label: '平均预测收益', value: `${(r.avgPredictedReturn ?? 0) >= 0 ? '+' : ''}${(r.avgPredictedReturn ?? 0).toFixed(2)}%`, color: (r.avgPredictedReturn ?? 0) >= 0 ? '#ef5350' : '#26a69a' },
+                { label: `平均未来${predMonths}月预测`, value: `${(r.avgPredictedReturn ?? 0) >= 0 ? '+' : ''}${(r.avgPredictedReturn ?? 0).toFixed(2)}%`, color: (r.avgPredictedReturn ?? 0) >= 0 ? '#ef5350' : '#26a69a' },
                 { label: '买入持有基准', value: `${(r.testBnhPct ?? 0) >= 0 ? '+' : ''}${(r.testBnhPct ?? 0).toFixed(2)}%` },
             );
         }
@@ -210,8 +212,9 @@ export class SmartScreenView {
         let rankRowsHtml: string;
 
         if (isV2) {
+            const predMonths = r.predictionMonths ?? 6;
             rankHeaderHtml = `<th>排名</th><th>代码</th><th>名称</th><th>行业</th><th>PE</th><th>PB</th><th>ROE%</th><th>估值分</th><th>AI评分</th>
-                <th>策略</th><th>置信度</th><th>预测收益</th><th>Alpha</th><th>信号</th><th>综合分</th>`;
+                <th>策略</th><th>置信度</th><th>未来${predMonths}月预测%</th><th>Alpha</th><th>信号</th><th>综合分</th>`;
             rankRowsHtml = r.rankings.map((item, idx) => {
                 const predColor = valColor(item.predictedReturnPct ?? 0);
                 const alphaColor = valColor(item.alphaPct ?? 0);
@@ -521,6 +524,7 @@ export class SmartScreenView {
 <script>
 var RD = ${rankingsJson};
 var IS_V2 = ${isV2 ? 'true' : 'false'};
+var PREDICTION_MONTHS = ${isV2 ? (r.predictionMonths ?? 6) : 0};
 var dpr = window.devicePixelRatio || 1;
 var PAD = { top: 24, right: 64, bottom: 36, left: 24 };
 
@@ -567,7 +571,7 @@ function showDetail(idx) {
     var alphaColor = (d.alphaPct || 0) >= 0 ? '#ef5350' : '#26a69a';
     statsHtml +=
       chip('置信度', (d.confidenceScore || 0).toFixed(1), confColor) +
-      chip('预测收益', ((d.predictedReturnPct || 0) >= 0 ? '+' : '') + (d.predictedReturnPct || 0).toFixed(2) + '%', predColor) +
+      chip(PREDICTION_MONTHS ? ('未来' + PREDICTION_MONTHS + '月预测') : '预测收益', ((d.predictedReturnPct || 0) >= 0 ? '+' : '') + (d.predictedReturnPct || 0).toFixed(2) + '%', predColor) +
       chip('Alpha', ((d.alphaPct || 0) >= 0 ? '+' : '') + (d.alphaPct || 0).toFixed(2) + '%', alphaColor) +
       chip('行业', d.industry || '-') +
       chip('PE', d.pe != null ? d.pe.toFixed(1) : '-') +

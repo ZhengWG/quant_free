@@ -61,12 +61,24 @@ export class StrategyTestView {
         );
         if (!topKPick) { return; }
 
+        const monthPick = await vscode.window.showQuickPick(
+            [
+                { label: '默认(6个月)', value: 6, description: '推荐' },
+                { label: '未来 3 个月', value: 3 },
+                { label: '未来 6 个月', value: 6 },
+                { label: '未来 12 个月', value: 12 },
+            ],
+            { placeHolder: '未来收益预测区间（可选，默认6个月）', title: '单股策略分析' }
+        );
+        if (!monthPick) { return; }
+
         const params: StrategyAnalyzeParams = {
             stockCode: stockCode.trim(),
             startDate,
             endDate,
             trainRatio: 0.8,
             topK: topKPick.value,
+            predictionMonths: monthPick.value,
         };
 
         await vscode.window.withProgress(
@@ -180,11 +192,32 @@ export class StrategyTestView {
         panel.webview.html = this._getAnalyzeHtml(asTestResult, result);
     }
 
-    private _getAnalyzeHtml(r: StrategyTestResult, _analyze: StrategyAnalyzeResult): string {
+    private _getAnalyzeHtml(r: StrategyTestResult, analyze: StrategyAnalyzeResult): string {
         const base = this._getHtml(r);
-        return base
+        const trainPct = Math.round(r.trainRatio * 100);
+        const testPct = 100 - trainPct;
+        const months = analyze.predictionMonths ?? 6;
+        const helpBlock = `
+<div class="help-box" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.6">
+  <strong style="color:var(--text)">未来收益预测 · 指标解读</strong><br/>
+  · <b>预测收益</b>：用训练期（前${trainPct}%）回测的收益率，按<strong>CAGR</strong>外推到「与验证期（后${testPct}%）等长」区间的预期收益，用于与验证期实际收益对比。<br/>
+  · <b>未来${months}月预测</b>：按训练期 CAGR 外推到<strong>未来 ${months} 个月</strong>的预期收益率（约 21 交易日/月），供参考后续一段时期的预期表现。<br/>
+  · <b>实际收益</b>：验证期（后${testPct}%）该策略的真实收益率。<br/>
+  · <b>置信度</b>：0–100 分，越高表示历史预测越可靠。
+</div>`;
+        const withHelp = base
             .replace('<h1>📊 策略测试 - ', '<h1>📊 单股策略分析 - ')
-            .replace(`${r.totalStrategies}个策略`, `Top${r.totalStrategies} 策略（按相对收益评分）+ 未来收益预测`);
+            .replace(`${r.totalStrategies}个策略`, `Top${r.totalStrategies} 策略（按相对收益评分）+ 未来收益预测`)
+            .replace('</div>\n\n<table><thead>', '</div>' + helpBlock + '\n<table><thead>');
+        const withHeader = withHelp.replace(
+            '<th>预测收益</th><th>实际收益</th>',
+            `<th>预测收益</th><th>未来${months}月预测</th><th>实际收益</th>`
+        );
+        const withColumn = withHeader.replace(
+            "%</td>'+\n    '<td style=\"color:'+rc(it.actualReturnPct)+'\">'+(it.testHasTrades?",
+            "%</td>'+\n    (it.predictedFutureReturnPct!=null?'<td style=\"color:'+rc(it.predictedFutureReturnPct)+'\">'+f(it.predictedFutureReturnPct,2)+'%</td>':'')+\n    '<td style=\"color:'+rc(it.actualReturnPct)+'\">'+(it.testHasTrades?"
+        );
+        return withColumn;
     }
 
     private _getHtml(r: StrategyTestResult): string {

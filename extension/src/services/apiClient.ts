@@ -306,6 +306,7 @@ export class ApiClient {
             testBnhPct: d.test_bnh_pct ?? undefined,
             avgConfidence: d.avg_confidence ?? undefined,
             avgPredictedReturn: d.avg_predicted_return ?? undefined,
+            predictionMonths: d.prediction_months ?? undefined,
         };
     }
 
@@ -509,6 +510,7 @@ export class ApiClient {
         if (params.initialCapital !== undefined) { payload.initial_capital = params.initialCapital; }
         if (params.trainRatio !== undefined) { payload.train_ratio = params.trainRatio; }
         if (params.topK !== undefined) { payload.top_k = params.topK; }
+        if (params.predictionMonths !== undefined) { payload.prediction_months = params.predictionMonths; }
 
         const response = await this.client.post<ApiResponse<any>>('/api/v1/backtest/analyze', payload);
         if (!response.data.data) {
@@ -551,6 +553,8 @@ export class ApiClient {
             testEquityActual: (it.test_equity_actual || []).map(mapPt),
             testEquityBnh: (it.test_equity_bnh || []).map(mapPt),
             fullPriceSeries: (it.full_price_series || []).map(mapPt),
+            predictionMonths: it.prediction_months,
+            predictedFutureReturnPct: it.predicted_future_return_pct,
         });
         return {
             stockCode: d.stock_code,
@@ -561,6 +565,7 @@ export class ApiClient {
             fullBnhPct: d.full_bnh_pct ?? 0,
             testBnhPct: d.test_bnh_pct ?? 0,
             timeTakenSeconds: d.time_taken_seconds,
+            predictionMonths: d.prediction_months,
             strategies: (d.strategies || []).map(mapItem),
         };
     }

@@ -183,7 +183,8 @@ export interface SmartScreenResult {
     mode?: string;
     testBnhPct?: number;
     avgConfidence?: number;
-    avgPredictedReturn?: number;
+    avgPredictedReturn?: number;   // 未来 N 月预测收益均值
+    predictionMonths?: number;     // 未来收益预测月数（表内预测收益即为此区间）
 }
 
 // ---------- 预测分析 ----------
@@ -289,6 +290,10 @@ export interface StrategyTestItem {
     testEquityActual: ProjectedPoint[];
     testEquityBnh: ProjectedPoint[];
     fullPriceSeries: ProjectedPoint[];
+    /** 单股策略分析：未来收益预测月数 */
+    predictionMonths?: number;
+    /** 单股策略分析：未来该区间的预期收益率% */
+    predictedFutureReturnPct?: number;
 }
 
 export interface StrategyTestResult {
@@ -316,6 +321,8 @@ export interface StrategyAnalyzeParams {
     initialCapital?: number;
     trainRatio?: number;
     topK?: number;
+    /** 未来收益预测月数（按训练期 CAGR 外推） */
+    predictionMonths?: number;
 }
 
 export interface StrategyAnalyzeResult {
@@ -327,5 +334,7 @@ export interface StrategyAnalyzeResult {
     fullBnhPct: number;
     testBnhPct: number;
     timeTakenSeconds: number;
+    /** 未来预测月数（与请求一致） */
+    predictionMonths?: number;
     strategies: StrategyTestItem[];
 }

@@ -477,6 +477,7 @@ class ScreeningService:
             test_bnh_pct=round(avg_test_bnh, 2),
             avg_confidence=round(avg_conf, 1),
             avg_predicted_return=round(avg_pred, 2),
+            prediction_months=params.prediction_months,
         )
 
     # ==================================================================
