@@ -7,6 +7,10 @@ from app.models.strategy import Strategy
 from app.models.order import Order
 from app.models.position import Position
 from app.models.market_cache import MarketDataCache
+from app.models.auto_trade import AutoTradeSession, AutoTradeSignal, AutoTradePosition
 
-__all__ = ["Stock", "Strategy", "Order", "Position", "MarketDataCache"]
+__all__ = [
+    "Stock", "Strategy", "Order", "Position", "MarketDataCache",
+    "AutoTradeSession", "AutoTradeSignal", "AutoTradePosition",
+]
 

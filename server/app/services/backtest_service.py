@@ -242,14 +242,47 @@ class BacktestService:
         short_w: int, long_w: int
     ) -> List[Tuple[int, str]]:
         dispatch = {
-            "ma_cross": lambda: self._sig_ma_cross(ctx["closes"], short_w, long_w),
-            "macd": lambda: self._sig_macd(ctx["closes"]),
-            "kdj": lambda: self._sig_kdj(kline),
-            "rsi": lambda: self._sig_rsi(ctx["closes"], short_w or 14),
-            "bollinger": lambda: self._sig_bollinger(ctx["closes"], long_w or 20),
+            "ma_cross":      lambda: self._sig_ma_cross(ctx["closes"], short_w, long_w),
+            "macd":          lambda: self._sig_macd(ctx["closes"]),
+            "kdj":           lambda: self._sig_kdj(kline),
+            "rsi":           lambda: self._sig_rsi(ctx["closes"], short_w or 14),
+            "bollinger":     lambda: self._sig_bollinger(ctx["closes"], long_w or 20),
+            # 扩充策略
+            "triple_ema":    lambda: self._sig_triple_ema(ctx["closes"], short_w or 4, long_w or 18),
+            "mean_rev_rsi":  lambda: self._sig_mean_rev_rsi(ctx["closes"], short_w or 14, long_w or 20),
+            "composite":     lambda: self._sig_composite(ctx["closes"], kline),
+            # 短线策略
+            "breakout":      lambda: self._sig_breakout(ctx["closes"], long_w or 20),
         }
         fn = dispatch.get(strategy, lambda: self._sig_ma_cross(ctx["closes"], short_w, long_w))
         return fn()
+
+    def get_current_signal(
+        self, strategy: str, kline: List[dict], short_w: int = 0, long_w: int = 0
+    ) -> str:
+        """
+        获取最新 K 线上的当前交易信号（供实时模拟交易使用）。
+        返回 "BUY" / "SELL" / "HOLD"
+        - 在全量 kline 上生成信号序列
+        - 取最后一个有效信号（最近 3 根 K 线内）
+        - 最近 3 根以外的旧信号一律返回 HOLD
+        """
+        if not kline or len(kline) < 30:
+            return "HOLD"
+        closes = [k["close"] for k in kline]
+        ctx = {"closes": closes}
+        try:
+            signals = self._generate_signals(strategy, kline, ctx, short_w, long_w)
+        except Exception:
+            return "HOLD"
+        if not signals:
+            return "HOLD"
+        n = len(kline)
+        # 只看最近3根K线是否有信号
+        recent = [(idx, act) for idx, act in signals if idx >= n - 3]
+        if not recent:
+            return "HOLD"
+        return recent[-1][1]
 
     def _sig_ma_cross(self, closes: List[float], short: int, long: int) -> List[Tuple[int, str]]:
         signals: List[Tuple[int, str]] = []
@@ -338,6 +371,141 @@ class BacktestService:
             prev_rsi = rsi
         return signals
 
+    def _sig_triple_ema(self, closes: List[float], fast: int, slow: int) -> List[Tuple[int, str]]:
+        """
+        三重EMA趋势跟踪（A股常用 4/9/18 参数）
+        - 买入：fast EMA 上穿 mid EMA，且 mid EMA 在 slow EMA 之上
+        - 卖出：fast EMA 下穿 mid EMA，且 mid EMA 在 slow EMA 之下
+        """
+        signals: List[Tuple[int, str]] = []
+        mid = (fast + slow) // 2
+        ema_f = self._ema(closes, fast)
+        ema_m = self._ema(closes, mid)
+        ema_s = self._ema(closes, slow)
+        for i in range(slow + 1, len(closes)):
+            prev_above = ema_f[i - 1] > ema_m[i - 1]
+            curr_above = ema_f[i] > ema_m[i]
+            if not prev_above and curr_above and ema_m[i] > ema_s[i]:
+                signals.append((i, "BUY"))
+            elif prev_above and not curr_above and ema_m[i] < ema_s[i]:
+                signals.append((i, "SELL"))
+        return signals
+
+    def _sig_mean_rev_rsi(self, closes: List[float], rsi_period: int, boll_period: int) -> List[Tuple[int, str]]:
+        """
+        RSI + 布林带 双重确认均值回归
+        - 买入：RSI < 35 且 收盘价 < 布林下轨
+        - 卖出：RSI > 65 且 收盘价 > 布林上轨
+        比单独使用 RSI 或 BOLL 误触发更少
+        """
+        signals: List[Tuple[int, str]] = []
+        if len(closes) < max(rsi_period, boll_period) + 2:
+            return signals
+
+        # 计算 RSI（Wilder 平滑）
+        avg_gain, avg_loss = 0.0, 0.0
+        for j in range(1, rsi_period + 1):
+            d = closes[j] - closes[j - 1]
+            avg_gain += max(d, 0)
+            avg_loss += max(-d, 0)
+        avg_gain /= rsi_period
+        avg_loss /= rsi_period
+
+        rsi_series = [50.0] * len(closes)
+        for i in range(rsi_period + 1, len(closes)):
+            d = closes[i] - closes[i - 1]
+            avg_gain = (avg_gain * (rsi_period - 1) + max(d, 0)) / rsi_period
+            avg_loss = (avg_loss * (rsi_period - 1) + max(-d, 0)) / rsi_period
+            rs = avg_gain / avg_loss if avg_loss > 0 else 100
+            rsi_series[i] = 100 - 100 / (1 + rs)
+
+        start = max(rsi_period, boll_period) + 1
+        for i in range(start, len(closes)):
+            window = closes[i - boll_period:i]
+            ma = sum(window) / boll_period
+            std = (sum((c - ma) ** 2 for c in window) / boll_period) ** 0.5
+            lower = ma - 2 * std
+            upper = ma + 2 * std
+            if rsi_series[i] < 35 and closes[i] < lower:
+                signals.append((i, "BUY"))
+            elif rsi_series[i] > 65 and closes[i] > upper:
+                signals.append((i, "SELL"))
+        return signals
+
+    def _sig_composite(self, closes: List[float], kline: List[dict]) -> List[Tuple[int, str]]:
+        """
+        MACD + RSI + Bollinger 三指标多数投票（≥2 同向 → 触发）
+        - 每根 K 线分别计算三个子信号（+1 看多 / -1 看空 / 0 中性）
+        - 总分 >= 2 → BUY；总分 <= -2 → SELL
+        减少误触发，适合震荡+趋势混合行情
+        """
+        n = len(closes)
+        if n < 40:
+            return []
+
+        # ── MACD 子信号 ──
+        ema12 = self._ema(closes, 12)
+        ema26 = self._ema(closes, 26)
+        dif = [ema12[i] - ema26[i] for i in range(n)]
+        dea = self._ema(dif, 9)
+        hist = [dif[i] - dea[i] for i in range(n)]
+        macd_sig = [0] * n
+        for i in range(27, n):
+            if hist[i] > 0 and hist[i - 1] <= 0:
+                macd_sig[i] = 1
+            elif hist[i] < 0 and hist[i - 1] >= 0:
+                macd_sig[i] = -1
+
+        # ── RSI 子信号 ──
+        period = 14
+        avg_gain, avg_loss = 0.0, 0.0
+        for j in range(1, period + 1):
+            d = closes[j] - closes[j - 1]
+            avg_gain += max(d, 0)
+            avg_loss += max(-d, 0)
+        avg_gain /= period
+        avg_loss /= period
+        rsi_sig = [0] * n
+        prev_rsi = 50.0
+        for i in range(period + 1, n):
+            d = closes[i] - closes[i - 1]
+            avg_gain = (avg_gain * (period - 1) + max(d, 0)) / period
+            avg_loss = (avg_loss * (period - 1) + max(-d, 0)) / period
+            rs = avg_gain / avg_loss if avg_loss > 0 else 100
+            rsi = 100 - 100 / (1 + rs)
+            if prev_rsi >= 35 and rsi < 35:
+                rsi_sig[i] = 1
+            elif prev_rsi <= 65 and rsi > 65:
+                rsi_sig[i] = -1
+            prev_rsi = rsi
+
+        # ── Bollinger 子信号 ──
+        bp = 20
+        boll_sig = [0] * n
+        for i in range(bp + 1, n):
+            window = closes[i - bp:i]
+            ma = sum(window) / bp
+            std = (sum((c - ma) ** 2 for c in window) / bp) ** 0.5
+            lower = ma - 2 * std
+            upper = ma + 2 * std
+            prev_window = closes[i - bp - 1:i - 1]
+            prev_ma = sum(prev_window) / bp
+            prev_std = (sum((c - prev_ma) ** 2 for c in prev_window) / bp) ** 0.5
+            if closes[i - 1] <= prev_ma - 2 * prev_std and closes[i] > lower:
+                boll_sig[i] = 1
+            elif closes[i - 1] < prev_ma + 2 * prev_std and closes[i] >= upper:
+                boll_sig[i] = -1
+
+        # ── 投票 ──
+        signals: List[Tuple[int, str]] = []
+        for i in range(30, n):
+            score = macd_sig[i] + rsi_sig[i] + boll_sig[i]
+            if score >= 2:
+                signals.append((i, "BUY"))
+            elif score <= -2:
+                signals.append((i, "SELL"))
+        return signals
+
     def _sig_bollinger(self, closes: List[float], period: int) -> List[Tuple[int, str]]:
         """Bollinger: 收盘从下轨外回到下轨内买入，从上轨内突破上轨卖出"""
         signals: List[Tuple[int, str]] = []
@@ -357,6 +525,22 @@ class BacktestService:
             if closes[i - 1] <= prev_lower and closes[i] > lower:
                 signals.append((i, "BUY"))
             elif closes[i - 1] < prev_upper and closes[i] >= upper:
+                signals.append((i, "SELL"))
+        return signals
+
+    def _sig_breakout(self, closes: List[float], period: int = 20) -> List[Tuple[int, str]]:
+        """
+        价格突破策略：
+        - BUY：收盘突破前N日最高收盘价
+        - SELL：收盘跌破前N日最高收盘价的93%（追踪止盈线）
+        信号无状态，执行层负责过滤已持仓/空仓时的重复信号。
+        """
+        signals: List[Tuple[int, str]] = []
+        for i in range(period + 1, len(closes)):
+            recent_high = max(closes[i - period:i])   # 前N根，不含今日
+            if closes[i] > recent_high:
+                signals.append((i, "BUY"))
+            elif closes[i] < recent_high * 0.93:
                 signals.append((i, "SELL"))
         return signals
 

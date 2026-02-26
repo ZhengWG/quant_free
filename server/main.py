@@ -14,9 +14,12 @@ from loguru import logger
 import uvicorn
 
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import init_db, AsyncSessionLocal
+from sqlalchemy import text
 from app.api.routes import market, strategy, trade, backtest
+from app.api.routes import auto_trade
 from app.services.websocket_service import setup_websocket
+from app.services.auto_scheduler import get_scheduler
 
 # 券商网关默认端口（与 broker_gateway 一致）
 BROKER_GATEWAY_PORT = 7070
@@ -69,6 +72,42 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
+    # DB 迁移：为 auto_trade_sessions / auto_trade_positions 添加字段（已存在则跳过）
+    session_columns = [
+        ("stop_loss_pct",       "REAL",    "0.06"),
+        ("take_profit_pct",     "REAL",    "0.05"),
+        ("max_hold_days",       "INTEGER", "15"),
+        ("min_test_return_pct", "REAL",    "-1.0"),
+        ("market_regime_filter","INTEGER", "1"),
+    ]
+    position_columns = [
+        ("entry_date", "TEXT", "''"),
+    ]
+    async with AsyncSessionLocal() as _db:
+        for col, col_type, default in session_columns:
+            try:
+                await _db.execute(
+                    text(f"ALTER TABLE auto_trade_sessions ADD COLUMN {col} {col_type} DEFAULT {default}")
+                )
+                await _db.commit()
+                logger.info(f"[Migration] 新增列 auto_trade_sessions.{col}")
+            except Exception:
+                pass  # 列已存在，忽略
+        for col, col_type, default in position_columns:
+            try:
+                await _db.execute(
+                    text(f"ALTER TABLE auto_trade_positions ADD COLUMN {col} {col_type} DEFAULT {default}")
+                )
+                await _db.commit()
+                logger.info(f"[Migration] 新增列 auto_trade_positions.{col}")
+            except Exception:
+                pass  # 列已存在，忽略
+
+    # 启动全自动交易调度器
+    scheduler = get_scheduler()
+    scheduler.start()
+    app.state.auto_scheduler = scheduler
+
     app.state.broker_gateway_process = None
     if (
         settings.TRADING_MODE == "live"
@@ -83,6 +122,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # 关闭时执行
+    # 停止调度器
+    if getattr(app.state, "auto_scheduler", None) is not None:
+        await app.state.auto_scheduler.stop()
+
     if getattr(app.state, "broker_gateway_process", None) is not None:
         try:
             app.state.broker_gateway_process.terminate()
@@ -134,6 +177,7 @@ app.include_router(market.router, prefix="/api/v1/market", tags=["行情数据"]
 app.include_router(strategy.router, prefix="/api/v1/strategy", tags=["策略推荐"])
 app.include_router(trade.router, prefix="/api/v1/trade", tags=["交易执行"])
 app.include_router(backtest.router, prefix="/api/v1/backtest", tags=["策略回测"])
+app.include_router(auto_trade.router, prefix="/api/v1/auto-trade", tags=["全自动交易"])
 
 # 设置WebSocket
 setup_websocket(app)
