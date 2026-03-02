@@ -26,9 +26,13 @@ from app.models.auto_trade import (
 from app.schemas.auto_trade import (
     AutoTradeSessionCreate,
     AutoTradeSessionOut,
+    ForwardTestCreate,
+    ForwardTestGroupOut,
     PerformanceOut,
     PositionOut,
+    SessionCompareItem,
     SignalOut,
+    STRATEGY_PRESETS,
     StrategyInfo,
     ValidateResult,
 )
@@ -66,6 +70,17 @@ def _strategy_tuple(name: str) -> Tuple[str, int, int, str]:
         if s == name:
             return s, sw, lw, lbl
     return name, 5, 20, name
+
+
+def _parse_preset_from_name(session_name: str) -> str:
+    """
+    从会话名 '{prefix}-{preset_name}' 中解析 preset_name。
+    使用 rsplit('-', 1) 只切最后一个连字符，兼容 prefix 中含 '-' 的情况。
+    """
+    if not session_name or "-" not in session_name:
+        return ""
+    parts = session_name.rsplit("-", 1)
+    return parts[1] if len(parts) == 2 and parts[1] in STRATEGY_PRESETS else ""
 
 
 class AutoTradeService:
@@ -108,6 +123,7 @@ class AutoTradeService:
             max_hold_days=cfg.max_hold_days,
             min_test_return_pct=cfg.min_test_return_pct,
             market_regime_filter=cfg.market_regime_filter,
+            data_scale=cfg.data_scale,
             status="validating",
         )
         model.stock_codes = cfg.stock_codes
@@ -204,6 +220,110 @@ class AutoTradeService:
             stmt = select(SessionModel).order_by(SessionModel.created_at.desc())
             rows = (await db.execute(stmt)).scalars().all()
             return [self._model_to_out(r) for r in rows]
+
+    # ══════════════════════════════════════════════════════
+    #  多策略前向测试
+    # ══════════════════════════════════════════════════════
+
+    async def create_forward_test(self, cfg: ForwardTestCreate) -> str:
+        """
+        批量创建多 preset 会话，归入同一 group_id。
+        每个 preset 独立进行历史验证 + 实盘调度。
+        返回 group_id 供后续对比查询。
+        """
+        group_id = str(uuid.uuid4())
+        name_prefix = cfg.name or f"ForwardTest-{datetime.now().strftime('%m%d-%H%M')}"
+
+        for preset_name in cfg.presets:
+            session_cfg = AutoTradeSessionCreate(
+                preset_name=preset_name,
+                name=f"{name_prefix}-{preset_name}",
+                stock_codes=cfg.stock_codes,
+                initial_capital=cfg.initial_capital,
+                validate_years=cfg.validate_years,
+                cycle_days=cfg.cycle_days,
+                data_scale=cfg.data_scale,
+            )
+            session_id = await self.create_session(session_cfg)
+            # create_session 已 commit，_validate_and_activate 只写 strategy_map/status
+            # 安全地回写 group_id
+            await self._update_session(session_id, {"group_id": group_id})
+            logger.info(f"[ForwardTest] group={group_id} preset={preset_name} session={session_id}")
+
+        return group_id
+
+    async def list_forward_tests(self) -> List[dict]:
+        """列出所有前向测试组摘要（按创建时间降序）"""
+        async with AsyncSessionLocal() as db:
+            stmt = (
+                select(SessionModel)
+                .where(SessionModel.group_id != "")
+                .order_by(SessionModel.created_at.desc())
+            )
+            rows = (await db.execute(stmt)).scalars().all()
+
+        groups: Dict[str, dict] = {}
+        for row in rows:
+            gid = row.group_id
+            if gid not in groups:
+                preset = _parse_preset_from_name(row.name)
+                prefix = row.name[:-(len(preset) + 1)] if preset else row.name
+                groups[gid] = {
+                    "group_id": gid,
+                    "name": prefix,
+                    "created_at": row.created_at,
+                    "session_count": 0,
+                    "statuses": [],
+                }
+            groups[gid]["session_count"] += 1
+            groups[gid]["statuses"].append(row.status)
+
+        return list(groups.values())
+
+    async def get_forward_test_compare(self, group_id: str) -> Optional[ForwardTestGroupOut]:
+        """查询某测试组所有会话的绩效，汇总为横向对比视图"""
+        async with AsyncSessionLocal() as db:
+            stmt = (
+                select(SessionModel)
+                .where(SessionModel.group_id == group_id)
+                .order_by(SessionModel.created_at.asc())
+            )
+            rows = (await db.execute(stmt)).scalars().all()
+
+        if not rows:
+            return None
+
+        first = rows[0]
+        first_preset = _parse_preset_from_name(first.name)
+        group_name = first.name[:-(len(first_preset) + 1)] if first_preset else first.name
+
+        items: List[SessionCompareItem] = []
+        for row in rows:
+            perf = await self.get_performance(row.id)
+            preset_name = _parse_preset_from_name(row.name)
+            preset_display = STRATEGY_PRESETS.get(preset_name, {}).get("display_name", preset_name)
+            recent = perf.recent_signals[:5] if perf and perf.recent_signals else []
+            items.append(SessionCompareItem(
+                session_id=row.id,
+                preset_name=preset_name,
+                preset_display_name=preset_display,
+                status=row.status,
+                total_return_pct=perf.total_return_pct if perf else 0.0,
+                total_trades=perf.total_trades if perf else 0,
+                win_rate=perf.win_rate if perf else 0.0,
+                realized_profit=perf.realized_profit if perf else 0.0,
+                unrealized_profit=perf.unrealized_profit if perf else 0.0,
+                available_cash=perf.available_cash if perf else float(row.available_cash),
+                market_value=perf.market_value if perf else 0.0,
+                recent_signals=recent,
+            ))
+
+        return ForwardTestGroupOut(
+            group_id=group_id,
+            name=group_name,
+            created_at=first.created_at,
+            sessions=items,
+        )
 
     # ══════════════════════════════════════════════════════
     #  历史验证（供外部调用 & 内部复用）
@@ -357,6 +477,7 @@ class AutoTradeService:
         min_test_return_pct = float((await self._get_field(session_id, "min_test_return_pct")) or -1.0)
         mrf = await self._get_field(session_id, "market_regime_filter")
         market_regime_filter = bool(mrf) if mrf is not None else True
+        data_scale = int((await self._get_field(session_id, "data_scale")) or 240)
 
         signals_out: List[SignalOut] = []
         cash = float(available_cash or initial_capital or 1_000_000)
@@ -390,7 +511,7 @@ class AutoTradeService:
                 elif sig_out.signal == "SELL" and sig_out.executed:
                     cash += sig_out.amount - sig_out.fees
 
-        # 更新 available_cash & last_run_date
+        # 更新 available_cash & last_run_date（日K用日期防重）
         await self._update_session(session_id, {
             "available_cash": max(cash, 0.0),
             "last_run_date": today,
@@ -452,7 +573,7 @@ class AutoTradeService:
             long_w = strategy_info.get("long_window", 0)
             label = strategy_info.get("label", strategy)
 
-            # 获取最新 K 线（200根，失败重试1次）
+            # 获取最新日K（失败重试1次）
             kline = await self.market_adapter.get_kline_data(stock_code, scale=240, datalen=200)
             if not kline or len(kline) < 30:
                 await asyncio.sleep(1.0)
@@ -718,6 +839,112 @@ class AutoTradeService:
             ))
         return result
 
+    async def check_intraday_stops(self, session_id: str) -> List[SignalOut]:
+        """
+        日内实时止损/止盈/超期检查（不依赖K线，使用实时报价）。
+        只产生 SELL 信号，BUY 信号仍在收盘后由 process_daily 处理。
+        """
+        async with AsyncSessionLocal() as db:
+            model = await db.get(SessionModel, session_id)
+            if not model or model.status != "running":
+                return []
+
+        stop_loss_pct = float((await self._get_field(session_id, "stop_loss_pct")) or 0.06)
+        take_profit_pct = float((await self._get_field(session_id, "take_profit_pct")) or 0.05)
+        max_hold_days = int((await self._get_field(session_id, "max_hold_days")) or 15)
+        available_cash = float((await self._get_field(session_id, "available_cash")) or 0)
+
+        # 获取所有持仓
+        async with AsyncSessionLocal() as db:
+            stmt = (
+                select(PositionModel)
+                .where(PositionModel.session_id == session_id)
+                .where(PositionModel.quantity > 0)
+            )
+            positions = (await db.execute(stmt)).scalars().all()
+
+        if not positions:
+            return []
+
+        # 批量获取实时报价
+        codes = [p.stock_code for p in positions]
+        try:
+            realtime = await self.market_adapter.get_realtime_data(codes)
+            price_map = {r["code"]: r.get("price", 0.0) for r in realtime if r.get("price")}
+        except Exception as e:
+            logger.warning(f"[AutoTrader] 日内实时报价失败 session={session_id}: {e}")
+            return []
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        signals_out: List[SignalOut] = []
+        cash = available_cash
+
+        for pos in positions:
+            current_price = price_map.get(pos.stock_code, 0.0)
+            if not current_price:
+                continue
+
+            sell_reason = ""
+            loss_pct = (current_price - pos.avg_cost) / pos.avg_cost
+
+            if loss_pct <= -stop_loss_pct:
+                sell_reason = f"[日内止损] 亏损{loss_pct*100:.1f}%，触发{stop_loss_pct*100:.0f}%阈值"
+            elif loss_pct >= take_profit_pct:
+                sell_reason = f"[日内止盈] 盈利{loss_pct*100:.1f}%，触发{take_profit_pct*100:.0f}%阈值"
+            elif pos.entry_date:
+                hold_days = (
+                    datetime.strptime(today, "%Y-%m-%d") -
+                    datetime.strptime(pos.entry_date[:10], "%Y-%m-%d")
+                ).days
+                if hold_days >= max_hold_days:
+                    sell_reason = f"[日内超期] 已持{hold_days}天，上限{max_hold_days}天"
+
+            if not sell_reason:
+                continue
+
+            qty = pos.quantity
+            amount = round(current_price * qty, 2)
+            fees = _calc_fees("SELL", current_price, qty)
+            profit = round((current_price - pos.avg_cost) * qty - fees, 2)
+
+            await self._update_position(session_id, pos.stock_code, "SELL", current_price, qty, fees)
+            cash += amount - fees
+
+            sig_model = SignalModel(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                date=now_str,
+                stock_code=pos.stock_code,
+                strategy="intraday_stop",
+                strategy_label="日内止损/止盈",
+                signal="SELL",
+                price=current_price,
+                quantity=qty,
+                amount=amount,
+                fees=fees,
+                profit=profit,
+                executed=True,
+                notes=sell_reason,
+            )
+            async with AsyncSessionLocal() as db:
+                db.add(sig_model)
+                await db.commit()
+
+            logger.info(f"[AutoTrader] 日内平仓 {pos.stock_code} {sell_reason} profit={profit:.1f}")
+            signals_out.append(SignalOut(
+                id=sig_model.id, session_id=session_id, date=now_str,
+                stock_code=pos.stock_code, strategy="intraday_stop",
+                strategy_label="日内止损/止盈", signal="SELL",
+                price=current_price, quantity=qty, amount=amount,
+                fees=fees, profit=profit, executed=True, notes=sell_reason,
+            ))
+
+        if signals_out:
+            await self._update_session(session_id, {"available_cash": max(cash, 0.0)})
+
+        return signals_out
+
     async def get_performance(self, session_id: str) -> Optional[PerformanceOut]:
         async with AsyncSessionLocal() as db:
             model = await db.get(SessionModel, session_id)
@@ -873,6 +1100,7 @@ class AutoTradeService:
             cycle_end_date=model.cycle_end_date or "",
             validate_years=model.validate_years,
             max_position_pct=model.max_position_pct,
+            data_scale=getattr(model, "data_scale", 240) or 240,
             strategy_map=model.strategy_map,
             last_run_date=model.last_run_date or "",
             created_at=model.created_at,

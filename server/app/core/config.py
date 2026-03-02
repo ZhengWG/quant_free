@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     # 实盘时是否随后端自动启动券商网关（evolving，仅当 BROKER_API_URL 为本地 7070 时生效）
     AUTO_START_BROKER_GATEWAY: bool = False
     
+    # 邮件通知配置（每日交易报告）
+    EMAIL_ENABLED: bool = False
+    EMAIL_SMTP_HOST: str = "smtp.qq.com"
+    EMAIL_SMTP_PORT: int = 465              # QQ邮箱 SSL 端口
+    EMAIL_SENDER: Optional[str] = None      # 发件邮箱（QQ号@qq.com）
+    EMAIL_AUTH_CODE: Optional[str] = None   # SMTP授权码（非登录密码）
+    EMAIL_RECEIVER: Optional[str] = None    # 收件邮箱（留空则与发件相同）
+    EMAIL_SEND_HOUR: int = 16               # 每日发送时间（24时制，默认16:00）
+
     # 数据库配置
     DB_PATH: str = "./data/quant_free.db"
     

@@ -45,6 +45,12 @@ class AutoTradeSession(Base):
     min_test_return_pct = Column(Float, default=-1.0)      # 策略验证期最低收益要求（%）
     market_regime_filter = Column(Boolean, default=True)   # 是否启用市场环境过滤
 
+    # K线粒度（分钟）：240=日K，15=15分钟K
+    data_scale = Column(Integer, default=240)
+
+    # 前向测试分组（空串表示独立会话）
+    group_id = Column(String, default="")
+
     # 状态: validating / running / paused / stopped
     status = Column(String, default="validating")
     last_run_date = Column(String, default="")             # 最近一次执行日期

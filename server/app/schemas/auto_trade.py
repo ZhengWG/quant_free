@@ -77,6 +77,10 @@ class AutoTradeSessionCreate(BaseModel):
     max_hold_days: int = Field(default=15, description="最大持仓自然日，超过则强制平仓，默认15天")
     min_test_return_pct: float = Field(default=-1.0, description="策略验证期最低Alpha要求(%)，低于此值不开新仓，默认-1%")
     market_regime_filter: bool = Field(default=True, description="市场环境过滤：仅在沪深300高于20日均线时允许建新仓")
+    data_scale: int = Field(
+        default=240,
+        description="K线粒度（分钟）：240=日K（收盘后执行），15=15分钟K（盘中实时执行）",
+    )
     skip_validate: bool = Field(default=False, description="跳过历史验证，直接运行")
     preset_strategy: Optional[str] = Field(default=None, description="若 skip_validate=True，指定统一策略名")
 
@@ -133,6 +137,7 @@ class AutoTradeSessionOut(BaseModel):
     cycle_end_date: str
     validate_years: float
     max_position_pct: float
+    data_scale: int = 240             # K线粒度（分钟）
     strategy_map: Dict[str, Any]      # {code: StrategyInfo dict}
     last_run_date: str
     created_at: Optional[datetime] = None
@@ -361,3 +366,62 @@ class OfflineSimResult(BaseModel):
     strategy_map: Dict[str, Any]      # {code: {strategy, label, confidence, ...}}
     per_stock: List[StockSimDetail]
     trades: List[TradeRecord] = []    # 所有成交记录（可选，数量多时截断）
+
+
+# ──────────────────────────────────────────────────────────
+# 多策略前向测试
+# ──────────────────────────────────────────────────────────
+
+class ForwardTestCreate(BaseModel):
+    """创建多策略前向测试组（每个 preset 对应一个独立会话）"""
+    name: str = Field(default="", description="测试组名称；会话命名为 {name}-{preset_name}")
+    stock_codes: List[str] = Field(
+        default=["000001", "600519", "000858", "002594", "600036"],
+        description="股票池",
+    )
+    presets: List[str] = Field(
+        default=["defensive", "aggressive"],
+        description="要对比运行的预设名称列表，须为 STRATEGY_PRESETS 中的有效 key",
+    )
+    initial_capital: float = Field(default=1_000_000.0, description="每个会话的初始资金")
+    validate_years: float = Field(default=5.0, description="历史验证年数")
+    cycle_days: int = Field(default=30, description="策略轮换周期（自然日）")
+    data_scale: int = Field(
+        default=240,
+        description="K线粒度（分钟）：240=日K，15=15分钟K",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_presets(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        presets = data.get("presets", ["defensive", "aggressive"])
+        invalid = [p for p in presets if p not in STRATEGY_PRESETS]
+        if invalid:
+            raise ValueError(f"无效的 preset_name: {invalid}，可用: {list(STRATEGY_PRESETS.keys())}")
+        return data
+
+
+class SessionCompareItem(BaseModel):
+    """单个会话的对比快照"""
+    session_id: str
+    preset_name: str
+    preset_display_name: str = ""
+    status: str
+    total_return_pct: float
+    total_trades: int
+    win_rate: float
+    realized_profit: float
+    unrealized_profit: float
+    available_cash: float
+    market_value: float
+    recent_signals: List[SignalOut] = []
+
+
+class ForwardTestGroupOut(BaseModel):
+    """多策略前向测试组的实时对比绩效"""
+    group_id: str
+    name: str
+    created_at: Optional[datetime] = None
+    sessions: List[SessionCompareItem]

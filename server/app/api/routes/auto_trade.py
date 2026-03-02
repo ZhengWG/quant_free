@@ -11,6 +11,8 @@ from loguru import logger
 from app.schemas.auto_trade import (
     AutoTradeSessionCreate,
     AutoTradeSessionOut,
+    ForwardTestCreate,
+    ForwardTestGroupOut,
     OfflineSimConfig,
     OfflineSimResult,
     PerformanceOut,
@@ -221,3 +223,67 @@ async def offline_simulate(body: OfflineSimConfig):
     except Exception as e:
         logger.error(f"offline_simulate error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────────
+#  多策略前向测试
+# ──────────────────────────────────────────────
+
+@router.post("/forward-test", summary="创建多策略前向测试组")
+async def create_forward_test(body: ForwardTestCreate):
+    """
+    一次性为每个 preset 创建独立会话并归入同一测试组：
+    - 后台异步完成历史验证（Walk-Forward）→ 自动切换 running
+    - 调度器每日 15:15 后统一触发所有 running 会话的信号生成
+    - 通过 `GET /forward-test/{group_id}` 查看各策略实时对比绩效
+
+    **presets 可选值：** `defensive`（防守型）、`aggressive`（激进型）
+    """
+    try:
+        group_id = await _svc.create_forward_test(body)
+        return {
+            "success": True,
+            "data": {
+                "group_id": group_id,
+                "preset_count": len(body.presets),
+                "presets": body.presets,
+            },
+            "message": (
+                f"已创建 {len(body.presets)} 个会话（{', '.join(body.presets)}），"
+                "历史验证在后台进行，完成后自动切换 running。"
+                f"通过 GET /api/v1/auto-trade/forward-test/{group_id} 查看实时对比绩效。"
+            ),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"create_forward_test error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/forward-test", summary="列出所有前向测试组")
+async def list_forward_tests():
+    """返回所有前向测试组摘要（group_id、名称、会话数、各会话状态）"""
+    try:
+        groups = await _svc.list_forward_tests()
+        return {"success": True, "data": groups, "total": len(groups)}
+    except Exception as e:
+        logger.error(f"list_forward_tests error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/forward-test/{group_id}",
+    response_model=ForwardTestGroupOut,
+    summary="查看前向测试组实时对比绩效",
+)
+async def get_forward_test_compare(group_id: str):
+    """
+    实时查询测试组中所有 preset 会话的横向对比绩效：
+    收益率、胜率、已实现/浮动盈亏、可用资金、最近5条信号。
+    每次请求均返回最新数据（无缓存）。
+    """
+    result = await _svc.get_forward_test_compare(group_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"测试组 {group_id} 不存在")
+    return result
