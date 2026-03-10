@@ -100,10 +100,10 @@ class AutoScheduler:
         except Exception as e:
             logger.error(f"[AutoScheduler] 日内止损检查失败 session={session_id}: {e}")
 
-    async def _run_eod_and_notify(self, sessions, today: str):
-        """依次执行所有会话的 EOD 信号，全部完成后发送邮件报告"""
-        session_reports = []
-        for session in sessions:
+    async def _run_eod_and_notify(self, eod_sessions, today: str):
+        """依次执行需要 EOD 的会话，全部完成后汇总所有 running 会话绩效发邮件"""
+        # 1. 执行 EOD 信号
+        for session in eod_sessions:
             try:
                 signals = await self.service.process_daily(session.id, today)
                 executed = [s for s in signals if s.executed]
@@ -113,12 +113,30 @@ class AutoScheduler:
                     f"[AutoScheduler] session={session.id} 完成 {today}："
                     f"{len(signals)}条信号，买{len(buys)}笔 卖{len(sells)}笔"
                 )
-                # 取最新绩效
+            except Exception as e:
+                logger.error(f"[AutoScheduler] session={session.id} 执行失败: {e}")
+
+        # 2. 汇总所有 running 会话的绩效（不只是今天跑过的）
+        if not settings.EMAIL_ENABLED:
+            return
+        try:
+            all_sessions = await self.service.list_sessions()
+            running = [s for s in all_sessions if s.status == "running"]
+        except Exception as e:
+            logger.warning(f"[AutoScheduler] 邮件报告: list_sessions 失败: {e}")
+            return
+
+        session_reports = []
+        for session in running:
+            try:
                 perf = await self.service.get_performance(session.id)
+                # 取今日已执行信号
+                from app.services.auto_trade_service import AutoTradeService as _Svc
+                all_sigs = await self.service.get_signals(session.id, date=today, limit=50)
                 today_sigs = [
                     {"date": s.date, "stock_code": s.stock_code, "signal": s.signal,
                      "price": s.price, "quantity": s.quantity, "profit": s.profit}
-                    for s in executed
+                    for s in all_sigs if s.executed
                 ]
                 session_reports.append({
                     "name": session.name,
@@ -131,10 +149,9 @@ class AutoScheduler:
                     "today_signals": today_sigs,
                 })
             except Exception as e:
-                logger.error(f"[AutoScheduler] session={session.id} 执行失败: {e}")
+                logger.error(f"[AutoScheduler] 邮件报告: session={session.id} 绩效获取失败: {e}")
 
-        # 发送每日报告邮件
-        if session_reports and settings.EMAIL_ENABLED:
+        if session_reports:
             report = {"date": today, "sessions": session_reports}
             await send_daily_report(report)
 

@@ -457,13 +457,20 @@ class AutoTradeService:
         4. 写入 auto_trade_signals
         5. 若今日 >= cycle_end_date → 触发策略轮换
         """
+        today = trade_date or datetime.now().strftime("%Y-%m-%d")
+
+        # 乐观锁：先写 last_run_date，防止并发重复执行
         async with AsyncSessionLocal() as db:
             model = await db.get(SessionModel, session_id)
             if not model or model.status != "running":
                 logger.warning(f"[AutoTrader] process_daily: session {session_id} 不存在或非运行状态")
                 return []
+            if model.last_run_date == today:
+                logger.info(f"[AutoTrader] process_daily: session {session_id} 今日已执行，跳过")
+                return []
+            model.last_run_date = today
+            await db.commit()
 
-        today = trade_date or datetime.now().strftime("%Y-%m-%d")
         logger.info(f"[AutoTrader] 处理日信号 session={session_id} date={today}")
 
         strategy_map = json.loads((await self._get_field(session_id, "strategy_map_json")) or "{}")
