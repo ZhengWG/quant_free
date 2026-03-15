@@ -131,13 +131,21 @@ class AutoScheduler:
             try:
                 perf = await self.service.get_performance(session.id)
                 # 取今日已执行信号
-                from app.services.auto_trade_service import AutoTradeService as _Svc
                 all_sigs = await self.service.get_signals(session.id, date=today, limit=50)
                 today_sigs = [
                     {"date": s.date, "stock_code": s.stock_code, "signal": s.signal,
                      "price": s.price, "quantity": s.quantity, "profit": s.profit}
                     for s in all_sigs if s.executed
                 ]
+                # 持仓明细（含 entry_date / holding_days）
+                positions = [p.model_dump() for p in (perf.per_stock if perf else [])]
+                # 近期成交记录（最近10条已执行信号）
+                recent_signals_all = await self.service.get_signals(session.id, limit=50)
+                recent_trades = [
+                    {"date": s.date, "stock_code": s.stock_code, "signal": s.signal,
+                     "price": s.price, "quantity": s.quantity, "profit": s.profit}
+                    for s in recent_signals_all if s.executed
+                ][-10:]
                 session_reports.append({
                     "name": session.name,
                     "status": session.status,
@@ -145,8 +153,12 @@ class AutoScheduler:
                     "total_trades": perf.total_trades if perf else 0,
                     "win_rate": perf.win_rate if perf else 0.0,
                     "realized_profit": perf.realized_profit if perf else 0.0,
+                    "unrealized_profit": perf.unrealized_profit if perf else 0.0,
                     "available_cash": perf.available_cash if perf else float(session.available_cash),
+                    "total_asset": perf.current_total_asset if perf else float(session.available_cash),
                     "today_signals": today_sigs,
+                    "positions": positions,
+                    "recent_trades": recent_trades,
                 })
             except Exception as e:
                 logger.error(f"[AutoScheduler] 邮件报告: session={session.id} 绩效获取失败: {e}")

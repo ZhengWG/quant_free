@@ -11,7 +11,7 @@ import asyncio
 import json
 import math
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -831,6 +831,13 @@ class AutoTradeService:
             cost_total = round(pos.avg_cost * pos.quantity, 2)
             unrealized = round(market_value - cost_total, 2)
             unrealized_pct = round(unrealized / cost_total * 100 if cost_total > 0 else 0.0, 2)
+            entry_date_str = pos.entry_date or ""
+            holding_days = 0
+            if entry_date_str:
+                try:
+                    holding_days = (date.today() - date.fromisoformat(entry_date_str)).days
+                except ValueError:
+                    pass
             result.append(PositionOut(
                 session_id=session_id,
                 stock_code=pos.stock_code,
@@ -843,6 +850,8 @@ class AutoTradeService:
                 unrealized_profit_pct=unrealized_pct,
                 realized_profit=round(pos.realized_profit or 0, 2),
                 total_fees=round(pos.total_fees or 0, 2),
+                entry_date=entry_date_str,
+                holding_days=holding_days,
             ))
         return result
 

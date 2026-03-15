@@ -175,6 +175,8 @@ class PositionOut(BaseModel):
     unrealized_profit_pct: float = 0.0
     realized_profit: float = 0.0
     total_fees: float = 0.0
+    entry_date: str = ""
+    holding_days: int = 0
 
 
 class PerformanceOut(BaseModel):
