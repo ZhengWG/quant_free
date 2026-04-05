@@ -81,6 +81,7 @@ async def lifespan(app: FastAPI):
         ("market_regime_filter","INTEGER", "1"),
         ("group_id",            "TEXT",    "''"),
         ("data_scale",          "INTEGER", "240"),
+        ("execution_mode",      "TEXT",    "'sim'"),
     ]
     position_columns = [
         ("entry_date", "TEXT", "''"),

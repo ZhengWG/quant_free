@@ -323,6 +323,26 @@ export interface StrategyAnalyzeParams {
     topK?: number;
     /** 未来收益预测月数（按训练期 CAGR 外推） */
     predictionMonths?: number;
+    /** 精细搜索：指定策略子集（如 ["macd","adx_trend"]） */
+    strategies?: string[];
+    /** 精细搜索：短周期候选窗口 */
+    shortWindowCandidates?: number[];
+    /** 精细搜索：长周期候选窗口 */
+    longWindowCandidates?: number[];
+    /** 精细搜索：止损比例候选（如 0.06, 0.08） */
+    stopLossCandidates?: number[];
+    /** 精细搜索：移动止盈候选（如 0.18, 0.22） */
+    trailingStopCandidates?: number[];
+    /** 精细搜索：单笔风险候选 */
+    riskPerTradeCandidates?: number[];
+    /** 精细搜索：趋势均线长度候选 */
+    trendMaLenCandidates?: number[];
+    /** 精细搜索：冷却 bars 候选 */
+    cooldownBarsCandidates?: number[];
+    /** 排序方式：confidence / alpha / actual_return / sharpe */
+    rankBy?: string;
+    /** 最大搜索组合数（防止过慢） */
+    maxSearchCombinations?: number;
 }
 
 export interface StrategyAnalyzeResult {
