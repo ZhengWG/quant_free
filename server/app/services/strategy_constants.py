@@ -22,4 +22,7 @@ BACKTEST_STRATEGIES: List[Tuple[str, int, int, str]] = [
     ("rsi", 7, 0, "RSI(7)"),                        # 快速RSI，对超买超卖更敏感
     ("bollinger", 0, 10, "BOLL短线(10)"),            # 短周期布林带，频繁均值回归
     ("breakout", 0, 20, "价格突破(20)"),              # 创20日新高买入，回撤7%离场
+    # 高级技术指标
+    ("adx_trend", 14, 22, "ADX趋势(14,22)"),         # ADX 强趋势过滤 + 方向信号
+    ("obv_breakout", 20, 0, "OBV突破(20)"),          # OBV 上穿均线确认量价突破
 ]

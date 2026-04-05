@@ -18,6 +18,19 @@ from loguru import logger
 from app.core.config import settings
 
 
+def _split_receivers(sender: str) -> List[str]:
+    """
+    支持多个收件人：
+    - EMAIL_RECEIVER 为空：默认发给 sender
+    - EMAIL_RECEIVER 用英文逗号分隔多个邮箱
+    """
+    raw = (settings.EMAIL_RECEIVER or "").strip()
+    if not raw:
+        return [sender]
+    out = [x.strip() for x in raw.split(",") if x.strip()]
+    return out or [sender]
+
+
 def _build_html(report: dict) -> str:
     """将结构化报告数据渲染为 HTML 邮件正文（4节：绩效摘要/持仓明细/今日信号/近期成交）"""
     today = report["date"]
@@ -218,16 +231,16 @@ def _send_email_sync(subject: str, html_body: str) -> bool:
     """同步发送邮件（在线程池中调用）"""
     sender = settings.EMAIL_SENDER
     auth_code = settings.EMAIL_AUTH_CODE
-    receiver = settings.EMAIL_RECEIVER or sender
 
     if not sender or not auth_code:
         logger.warning("[Email] EMAIL_SENDER 或 EMAIL_AUTH_CODE 未配置，跳过发送")
         return False
+    receivers = _split_receivers(sender)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"QuantFree <{sender}>"
-    msg["To"] = receiver
+    msg["To"] = ", ".join(receivers)
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     try:
@@ -236,8 +249,8 @@ def _send_email_sync(subject: str, html_body: str) -> bool:
             settings.EMAIL_SMTP_HOST, settings.EMAIL_SMTP_PORT, context=context
         ) as srv:
             srv.login(sender, auth_code)
-            srv.sendmail(sender, receiver, msg.as_string())
-        logger.info(f"[Email] 报告已发送至 {receiver}")
+            srv.sendmail(sender, receivers, msg.as_string())
+        logger.info(f"[Email] 报告已发送至 {receivers}")
         return True
     except Exception as e:
         logger.error(f"[Email] 发送失败: {e}")

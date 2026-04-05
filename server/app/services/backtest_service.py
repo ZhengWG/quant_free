@@ -17,6 +17,8 @@ from app.schemas.backtest import (
     BacktestOptimizeParams, BacktestOptimizeResult, BacktestOptimizeItem,
 )
 from app.adapters.market.sina_adapter import SinaAdapter
+from app.utils.indicators import adx as calc_adx
+from app.utils.indicators import obv as calc_obv
 
 # ==================== 全局参数 ====================
 STOP_LOSS_PCT = 0.07
@@ -219,10 +221,14 @@ class BacktestService:
         atr = self._compute_atr(highs, lows, closes, cfg["atr_period"])
         vol_ma = self._sma(volumes, cfg["volume_ma_len"])
         trend_ma = self._sma(closes, cfg["trend_ma_len"])
+        adx_series = calc_adx(highs, lows, closes, period=14)
+        obv_series = calc_obv(closes, volumes)
+        obv_ma = self._sma(obv_series, 20) if obv_series else [0.0] * len(closes)
 
         ctx: Dict = {
             "closes": closes, "highs": highs, "lows": lows, "volumes": volumes,
             "atr": atr, "vol_ma": vol_ma, "trend_ma": trend_ma,
+            "adx": adx_series, "obv": obv_series, "obv_ma": obv_ma,
             "trade_start": trade_start, "trade_end": trade_end,
             "cfg": cfg,
         }
@@ -253,6 +259,14 @@ class BacktestService:
             "composite":     lambda: self._sig_composite(ctx["closes"], kline),
             # 短线策略
             "breakout":      lambda: self._sig_breakout(ctx["closes"], long_w or 20),
+            # 高级技术指标
+            "adx_trend":     lambda: self._sig_adx_trend(
+                ctx["closes"], ctx.get("highs", []), ctx.get("lows", []),
+                adx_period=short_w or 14, trend_period=long_w or 22,
+            ),
+            "obv_breakout":  lambda: self._sig_obv_breakout(
+                ctx["closes"], ctx.get("volumes", []), ma_period=short_w or 20,
+            ),
         }
         fn = dispatch.get(strategy, lambda: self._sig_ma_cross(ctx["closes"], short_w, long_w))
         return fn()
@@ -270,7 +284,20 @@ class BacktestService:
         if not kline or len(kline) < 30:
             return "HOLD"
         closes = [k["close"] for k in kline]
-        ctx = {"closes": closes}
+        highs = [k.get("high", k["close"]) for k in kline]
+        lows = [k.get("low", k["close"]) for k in kline]
+        volumes = [k.get("volume", 0.0) for k in kline]
+        adx_series = calc_adx(highs, lows, closes, period=short_w or 14)
+        obv_series = calc_obv(closes, volumes)
+        ctx = {
+            "closes": closes,
+            "highs": highs,
+            "lows": lows,
+            "volumes": volumes,
+            "adx": adx_series,
+            "obv": obv_series,
+            "obv_ma": self._sma(obv_series, short_w or 20) if obv_series else [0.0] * len(closes),
+        }
         try:
             signals = self._generate_signals(strategy, kline, ctx, short_w, long_w)
         except Exception:
@@ -541,6 +568,60 @@ class BacktestService:
             if closes[i] > recent_high:
                 signals.append((i, "BUY"))
             elif closes[i] < recent_high * 0.93:
+                signals.append((i, "SELL"))
+        return signals
+
+    def _sig_adx_trend(
+        self,
+        closes: List[float],
+        highs: List[float],
+        lows: List[float],
+        adx_period: int = 14,
+        trend_period: int = 22,
+    ) -> List[Tuple[int, str]]:
+        """
+        ADX 趋势策略：
+        - ADX > 25 且价格上破趋势均线 -> BUY
+        - ADX > 20 且价格下破趋势均线 -> SELL
+        """
+        n = len(closes)
+        if n < max(adx_period * 2 + 5, trend_period + 5):
+            return []
+        adx_series = calc_adx(highs, lows, closes, period=adx_period)
+        trend_ma = self._sma(closes, trend_period)
+        signals: List[Tuple[int, str]] = []
+        start = max(adx_period * 2, trend_period) + 1
+        for i in range(start, n):
+            if adx_series[i] > 25 and closes[i - 1] <= trend_ma[i - 1] and closes[i] > trend_ma[i]:
+                signals.append((i, "BUY"))
+            elif adx_series[i] > 20 and closes[i - 1] >= trend_ma[i - 1] and closes[i] < trend_ma[i]:
+                signals.append((i, "SELL"))
+        return signals
+
+    def _sig_obv_breakout(
+        self,
+        closes: List[float],
+        volumes: List[float],
+        ma_period: int = 20,
+    ) -> List[Tuple[int, str]]:
+        """
+        OBV 量价突破：
+        - BUY: OBV 上穿其均线且价格创新高
+        - SELL: OBV 下穿其均线
+        """
+        n = len(closes)
+        if n < ma_period + 5 or len(volumes) != n:
+            return []
+        obv_series = calc_obv(closes, volumes)
+        if not obv_series:
+            return []
+        obv_ma = self._sma(obv_series, ma_period)
+        signals: List[Tuple[int, str]] = []
+        for i in range(ma_period + 1, n):
+            recent_high = max(closes[max(0, i - ma_period):i])
+            if obv_series[i - 1] <= obv_ma[i - 1] and obv_series[i] > obv_ma[i] and closes[i] >= recent_high:
+                signals.append((i, "BUY"))
+            elif obv_series[i - 1] >= obv_ma[i - 1] and obv_series[i] < obv_ma[i]:
                 signals.append((i, "SELL"))
         return signals
 

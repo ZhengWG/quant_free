@@ -3,7 +3,7 @@
 所有字段尽量设为可选并给默认值，方便 API 调用
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 
@@ -81,6 +81,10 @@ class AutoTradeSessionCreate(BaseModel):
         default=240,
         description="K线粒度（分钟）：240=日K（收盘后执行），15=15分钟K（盘中实时执行）",
     )
+    execution_mode: Literal["sim", "live"] = Field(
+        default="sim",
+        description="执行模式：sim=会话内模拟成交；live=调用券商网关实盘下单",
+    )
     skip_validate: bool = Field(default=False, description="跳过历史验证，直接运行")
     preset_strategy: Optional[str] = Field(default=None, description="若 skip_validate=True，指定统一策略名")
 
@@ -138,6 +142,7 @@ class AutoTradeSessionOut(BaseModel):
     validate_years: float
     max_position_pct: float
     data_scale: int = 240             # K线粒度（分钟）
+    execution_mode: Literal["sim", "live"] = "sim"  # 执行模式：sim / live
     strategy_map: Dict[str, Any]      # {code: StrategyInfo dict}
     last_run_date: str
     created_at: Optional[datetime] = None

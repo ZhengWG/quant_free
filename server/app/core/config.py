@@ -50,6 +50,20 @@ class Settings(BaseSettings):
     EMAIL_RECEIVER: Optional[str] = None    # 收件邮箱（留空则与发件相同）
     EMAIL_SEND_HOUR: int = 16               # 每日发送时间（24时制，默认16:00）
 
+    # 短信提醒配置（默认关闭）
+    SMS_ENABLED: bool = False
+    # 可选：webhook / twilio
+    SMS_PROVIDER: str = "webhook"
+    # webhook 方式：向指定 URL POST {"to","content","event","channel"}
+    SMS_WEBHOOK_URL: Optional[str] = None
+    SMS_WEBHOOK_TOKEN: Optional[str] = None
+    # 通用接收号码（多个号码用英文逗号分隔）
+    SMS_RECEIVERS: Optional[str] = None
+    # Twilio 方式（可选）
+    SMS_TWILIO_ACCOUNT_SID: Optional[str] = None
+    SMS_TWILIO_AUTH_TOKEN: Optional[str] = None
+    SMS_TWILIO_FROM: Optional[str] = None
+
     # 数据库配置
     DB_PATH: str = "./data/quant_free.db"
     

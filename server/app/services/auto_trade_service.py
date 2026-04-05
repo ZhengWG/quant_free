@@ -37,10 +37,12 @@ from app.schemas.auto_trade import (
     ValidateResult,
 )
 from app.schemas.backtest import BacktestParams
+from app.schemas.trade import OrderCreate
 from app.schemas.strategy_test import StrategyTestParams
 from app.services.backtest_service import BacktestService
 from app.services.strategy_test_service import StrategyTestService
 from app.services.strategy_constants import BACKTEST_STRATEGIES
+from app.services.trade_service import TradeService
 from app.adapters.market.sina_adapter import SinaAdapter
 
 # ── 模拟交易费率（与 TradeService 保持一致）──
@@ -89,6 +91,7 @@ class AutoTradeService:
         self.backtest_svc = BacktestService()
         self.strategy_test_svc = StrategyTestService()
         self.market_adapter = SinaAdapter()
+        self.trade_service = TradeService()
 
     # ══════════════════════════════════════════════════════
     #  会话管理
@@ -105,6 +108,10 @@ class AutoTradeService:
 
         # 周期结束日（自然日）
         cycle_end = now + timedelta(days=cfg.cycle_days)
+
+        exec_mode = (cfg.execution_mode or "sim").lower()
+        if exec_mode not in ("sim", "live"):
+            exec_mode = "sim"
 
         model = SessionModel(
             id=session_id,
@@ -124,6 +131,7 @@ class AutoTradeService:
             min_test_return_pct=cfg.min_test_return_pct,
             market_regime_filter=cfg.market_regime_filter,
             data_scale=cfg.data_scale,
+            execution_mode=exec_mode,
             status="validating",
         )
         model.stock_codes = cfg.stock_codes
@@ -485,10 +493,17 @@ class AutoTradeService:
         mrf = await self._get_field(session_id, "market_regime_filter")
         market_regime_filter = bool(mrf) if mrf is not None else True
         data_scale = int((await self._get_field(session_id, "data_scale")) or 240)
+        execution_mode = str((await self._get_field(session_id, "execution_mode")) or "sim").lower()
 
         signals_out: List[SignalOut] = []
         cash = float(available_cash or initial_capital or 1_000_000)
         max_pct = float(max_position_pct or 0.3)
+        if execution_mode == "live":
+            try:
+                acc = await self.trade_service.get_account_info()
+                cash = float(acc.available_cash)
+            except Exception as e:
+                logger.warning(f"[AutoTrader] 获取实盘可用资金失败，回退会话资金: {e}")
 
         # 市场环境过滤：一次性检查，所有股票共用
         market_ok = True
@@ -510,6 +525,7 @@ class AutoTradeService:
                 max_hold_days=max_hold_days,
                 min_test_return_pct=min_test_return_pct,
                 market_ok=market_ok,
+                execution_mode=execution_mode,
             )
             if sig_out:
                 signals_out.append(sig_out)
@@ -517,6 +533,13 @@ class AutoTradeService:
                     cash -= sig_out.amount + sig_out.fees
                 elif sig_out.signal == "SELL" and sig_out.executed:
                     cash += sig_out.amount - sig_out.fees
+
+        if execution_mode == "live":
+            try:
+                acc = await self.trade_service.get_account_info()
+                cash = float(acc.available_cash)
+            except Exception as e:
+                logger.warning(f"[AutoTrader] 刷新实盘可用资金失败，保留估算值: {e}")
 
         # 更新 available_cash & last_run_date（日K用日期防重）
         await self._update_session(session_id, {
@@ -572,6 +595,7 @@ class AutoTradeService:
         max_hold_days: int = 15,
         min_test_return_pct: float = -1.0,
         market_ok: bool = True,
+        execution_mode: str = "sim",
     ) -> Optional[SignalOut]:
         """对单只股票生成信号并执行模拟交易"""
         try:
@@ -593,6 +617,8 @@ class AutoTradeService:
             signal = self.backtest_svc.get_current_signal(strategy, kline, short_w, long_w)
 
             # 查当前持仓
+            if execution_mode == "live":
+                await self._sync_position_from_trade_account(session_id, stock_code=stock_code)
             position = await self._get_position(session_id, stock_code)
             holding_qty = position.quantity if position else 0
 
@@ -656,10 +682,26 @@ class AutoTradeService:
                     amount = round(latest_price * qty, 2)
                     fees = _calc_fees("BUY", latest_price, qty)
                     if available_cash >= amount + fees:
-                        await self._update_position(session_id, stock_code, "BUY",
-                                                     latest_price, qty, fees, today)
-                        executed = True
-                        notes = f"买入 {qty} 股 @{latest_price}"
+                        if execution_mode == "live":
+                            fill = await self._execute_live_order(stock_code, "BUY", qty)
+                            if fill:
+                                latest_price = fill["price"]
+                                qty = fill["qty"]
+                                amount = round(latest_price * qty, 2)
+                                fees = fill["fees"]
+                                await self._update_position(
+                                    session_id, stock_code, "BUY", latest_price, qty, fees, today
+                                )
+                                executed = True
+                                notes = f"[实盘] 买入 {qty} 股 @{latest_price}"
+                            else:
+                                signal = "HOLD"
+                                notes = "实盘下单失败，已跳过"
+                        else:
+                            await self._update_position(session_id, stock_code, "BUY",
+                                                         latest_price, qty, fees, today)
+                            executed = True
+                            notes = f"买入 {qty} 股 @{latest_price}"
                     else:
                         signal = "HOLD"
                         notes = f"资金不足 (需¥{amount+fees:.0f}，可用¥{available_cash:.0f})"
@@ -673,10 +715,26 @@ class AutoTradeService:
                 fees = _calc_fees("SELL", latest_price, qty)
                 avg_cost = position.avg_cost if position else latest_price
                 profit = round((latest_price - avg_cost) * qty - fees, 2)
-                await self._update_position(session_id, stock_code, "SELL",
-                                             latest_price, qty, fees)
-                executed = True
-                notes = f"卖出 {qty} 股 @{latest_price}，盈亏¥{profit:.1f}"
+                if execution_mode == "live":
+                    fill = await self._execute_live_order(stock_code, "SELL", qty)
+                    if fill:
+                        latest_price = fill["price"]
+                        qty = fill["qty"]
+                        amount = round(latest_price * qty, 2)
+                        fees = fill["fees"]
+                        profit = round((latest_price - avg_cost) * qty - fees, 2)
+                        await self._update_position(session_id, stock_code, "SELL",
+                                                     latest_price, qty, fees)
+                        executed = True
+                        notes = f"[实盘] 卖出 {qty} 股 @{latest_price}，盈亏¥{profit:.1f}"
+                    else:
+                        signal = "HOLD"
+                        notes = "实盘卖出失败，已跳过"
+                else:
+                    await self._update_position(session_id, stock_code, "SELL",
+                                                 latest_price, qty, fees)
+                    executed = True
+                    notes = f"卖出 {qty} 股 @{latest_price}，盈亏¥{profit:.1f}"
             else:
                 signal = "HOLD"
                 notes = f"持仓{holding_qty}股，无操作"
@@ -864,6 +922,7 @@ class AutoTradeService:
             model = await db.get(SessionModel, session_id)
             if not model or model.status != "running":
                 return []
+            execution_mode = (getattr(model, "execution_mode", "sim") or "sim").lower()
 
         stop_loss_pct = float((await self._get_field(session_id, "stop_loss_pct")) or 0.06)
         take_profit_pct = float((await self._get_field(session_id, "take_profit_pct")) or 0.05)
@@ -924,8 +983,21 @@ class AutoTradeService:
             fees = _calc_fees("SELL", current_price, qty)
             profit = round((current_price - pos.avg_cost) * qty - fees, 2)
 
-            await self._update_position(session_id, pos.stock_code, "SELL", current_price, qty, fees)
-            cash += amount - fees
+            if execution_mode == "live":
+                fill = await self._execute_live_order(pos.stock_code, "SELL", qty)
+                if not fill:
+                    logger.warning(f"[AutoTrader] 日内实盘卖出失败 {pos.stock_code}")
+                    continue
+                current_price = fill["price"]
+                qty = fill["qty"]
+                amount = round(current_price * qty, 2)
+                fees = fill["fees"]
+                profit = round((current_price - pos.avg_cost) * qty - fees, 2)
+                await self._update_position(session_id, pos.stock_code, "SELL", current_price, qty, fees)
+                cash += amount - fees
+            else:
+                await self._update_position(session_id, pos.stock_code, "SELL", current_price, qty, fees)
+                cash += amount - fees
 
             sig_model = SignalModel(
                 id=str(uuid.uuid4()),
@@ -941,7 +1013,7 @@ class AutoTradeService:
                 fees=fees,
                 profit=profit,
                 executed=True,
-                notes=sell_reason,
+                notes=(f"[实盘]{sell_reason}" if execution_mode == "live" else sell_reason),
             )
             async with AsyncSessionLocal() as db:
                 db.add(sig_model)
@@ -953,7 +1025,8 @@ class AutoTradeService:
                 stock_code=pos.stock_code, strategy="intraday_stop",
                 strategy_label="日内止损/止盈", signal="SELL",
                 price=current_price, quantity=qty, amount=amount,
-                fees=fees, profit=profit, executed=True, notes=sell_reason,
+                fees=fees, profit=profit, executed=True,
+                notes=(f"[实盘]{sell_reason}" if execution_mode == "live" else sell_reason),
             ))
 
         if signals_out:
@@ -1037,6 +1110,102 @@ class AutoTradeService:
             )
             return (await db.execute(stmt)).scalar_one_or_none()
 
+    async def _execute_live_order(
+        self, stock_code: str, side: str, qty: int
+    ) -> Optional[Dict[str, float]]:
+        """
+        通过 TradeService 执行实盘订单，返回统一成交信息：
+        {"price": float, "qty": int, "fees": float}
+        """
+        if qty <= 0:
+            return None
+        try:
+            order = await self.trade_service.place_order(
+                OrderCreate(
+                    stock_code=stock_code,
+                    type=side,
+                    order_type="MARKET",
+                    quantity=qty,
+                )
+            )
+            if order.status != "FILLED" or order.filled_quantity <= 0:
+                logger.warning(
+                    f"[AutoTrader] live {side} {stock_code} not filled: status={order.status}"
+                )
+                return None
+            return {
+                "price": float(order.filled_price),
+                "qty": int(order.filled_quantity),
+                "fees": float(order.total_fee or 0.0),
+            }
+        except Exception as e:
+            logger.error(f"[AutoTrader] live order failed {side} {stock_code}: {e}")
+            return None
+
+    async def _sync_live_cash_from_trade_account(self, session_id: str) -> float:
+        """从实盘账户同步可用资金到会话并返回最新现金。"""
+        try:
+            account = await self.trade_service.get_account_info()
+            cash = float(account.available_cash)
+            await self._update_session(session_id, {"available_cash": cash})
+            return cash
+        except Exception as e:
+            logger.warning(f"[AutoTrader] sync live cash failed: {e}")
+            current = await self._get_field(session_id, "available_cash")
+            return float(current or 0.0)
+
+    async def _sync_position_from_trade_account(
+        self, session_id: str, stock_code: Optional[str] = None
+    ) -> None:
+        """
+        将实盘账户持仓同步到 auto_trade_positions（仅用于 live 会话读取风控）。
+        """
+        try:
+            live_positions = await self.trade_service.get_positions()
+        except Exception as e:
+            logger.warning(f"[AutoTrader] sync live positions failed: {e}")
+            return
+
+        target_codes = {stock_code} if stock_code else None
+        live_map = {
+            p.stock_code: p for p in live_positions
+            if (target_codes is None or p.stock_code in target_codes)
+        }
+
+        async with AsyncSessionLocal() as db:
+            stmt = select(PositionModel).where(PositionModel.session_id == session_id)
+            if target_codes:
+                stmt = stmt.where(PositionModel.stock_code.in_(list(target_codes)))
+            existing = (await db.execute(stmt)).scalars().all()
+            existing_map = {p.stock_code: p for p in existing}
+
+            for code, lp in live_map.items():
+                qty = int(lp.quantity or 0)
+                if qty <= 0:
+                    continue
+                if code in existing_map:
+                    pos = existing_map[code]
+                    pos.quantity = qty
+                    pos.avg_cost = float(lp.cost_price or pos.avg_cost or 0.0)
+                else:
+                    db.add(PositionModel(
+                        id=str(uuid.uuid4()),
+                        session_id=session_id,
+                        stock_code=code,
+                        stock_name=lp.stock_name or "",
+                        quantity=qty,
+                        avg_cost=float(lp.cost_price or 0.0),
+                        entry_date="",
+                        total_fees=0.0,
+                        realized_profit=0.0,
+                    ))
+
+            for code, pos in existing_map.items():
+                if code not in live_map:
+                    pos.quantity = 0
+
+            await db.commit()
+
     async def _update_position(
         self,
         session_id: str,
@@ -1117,6 +1286,7 @@ class AutoTradeService:
             validate_years=model.validate_years,
             max_position_pct=model.max_position_pct,
             data_scale=getattr(model, "data_scale", 240) or 240,
+            execution_mode=getattr(model, "execution_mode", "sim") or "sim",
             strategy_map=model.strategy_map,
             last_run_date=model.last_run_date or "",
             created_at=model.created_at,
