@@ -99,6 +99,17 @@ class StrategyAnalyzeParams(BaseModel):
     train_ratio: float = 0.8     # 训练/验证 划分比例
     top_k: int = 5               # 返回相对收益评分最高的前 K 个策略
     prediction_months: int = 6   # 未来收益预测月数（按训练期 CAGR 外推）
+    # 精细搜索参数（可选）
+    strategies: Optional[List[str]] = None              # 仅在这些策略中搜索；为空时使用默认策略池
+    short_window_candidates: Optional[List[int]] = None # 候选短周期窗口（如 [3,5,8,14]）
+    long_window_candidates: Optional[List[int]] = None  # 候选长周期窗口（如 [18,20,26,60]）
+    stop_loss_candidates: Optional[List[float]] = None  # 候选止损比例（如 [0.06,0.08]）
+    trailing_stop_candidates: Optional[List[float]] = None  # 候选移动止盈回撤（如 [0.18,0.22]）
+    risk_per_trade_candidates: Optional[List[float]] = None # 候选单笔风险（如 [0.04,0.08]）
+    trend_ma_len_candidates: Optional[List[int]] = None     # 候选趋势均线长度（如 [20,40,60]）
+    cooldown_bars_candidates: Optional[List[int]] = None    # 候选冷却 bars（如 [1,2,3]）
+    rank_by: str = "confidence"        # confidence / alpha / actual_return / sharpe
+    max_search_combinations: int = 120 # 限制搜索组合数，避免过慢
 
 
 class StrategyAnalyzeResult(BaseModel):

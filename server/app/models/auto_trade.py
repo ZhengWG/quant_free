@@ -47,6 +47,8 @@ class AutoTradeSession(Base):
 
     # K线粒度（分钟）：240=日K，15=15分钟K
     data_scale = Column(Integer, default=240)
+    # 执行模式：sim=会话内模拟成交；live=调用券商网关实盘下单
+    execution_mode = Column(String, default="sim")
 
     # 前向测试分组（空串表示独立会话）
     group_id = Column(String, default="")

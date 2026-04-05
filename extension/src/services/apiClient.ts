@@ -511,6 +511,16 @@ export class ApiClient {
         if (params.trainRatio !== undefined) { payload.train_ratio = params.trainRatio; }
         if (params.topK !== undefined) { payload.top_k = params.topK; }
         if (params.predictionMonths !== undefined) { payload.prediction_months = params.predictionMonths; }
+        if (params.strategies && params.strategies.length > 0) { payload.strategies = params.strategies; }
+        if (params.shortWindowCandidates && params.shortWindowCandidates.length > 0) { payload.short_window_candidates = params.shortWindowCandidates; }
+        if (params.longWindowCandidates && params.longWindowCandidates.length > 0) { payload.long_window_candidates = params.longWindowCandidates; }
+        if (params.stopLossCandidates && params.stopLossCandidates.length > 0) { payload.stop_loss_candidates = params.stopLossCandidates; }
+        if (params.trailingStopCandidates && params.trailingStopCandidates.length > 0) { payload.trailing_stop_candidates = params.trailingStopCandidates; }
+        if (params.riskPerTradeCandidates && params.riskPerTradeCandidates.length > 0) { payload.risk_per_trade_candidates = params.riskPerTradeCandidates; }
+        if (params.trendMaLenCandidates && params.trendMaLenCandidates.length > 0) { payload.trend_ma_len_candidates = params.trendMaLenCandidates; }
+        if (params.cooldownBarsCandidates && params.cooldownBarsCandidates.length > 0) { payload.cooldown_bars_candidates = params.cooldownBarsCandidates; }
+        if (params.rankBy !== undefined) { payload.rank_by = params.rankBy; }
+        if (params.maxSearchCombinations !== undefined) { payload.max_search_combinations = params.maxSearchCombinations; }
 
         const response = await this.client.post<ApiResponse<any>>('/api/v1/backtest/analyze', payload);
         if (!response.data.data) {

@@ -98,43 +98,9 @@ async def strategy_test(params: StrategyTestParams):
 
 @router.post("/analyze", response_model=ApiResponse[StrategyAnalyzeResult])
 async def analyze_strategy(params: StrategyAnalyzeParams):
-    """单股策略分析：80/20 多策略回测，按相对收益评分取 TopK 策略，并给出未来 N 月收益预测"""
+    """单股策略分析：支持精细策略搜索（策略/窗口/风控网格）+ TopK + 未来收益预测"""
     try:
-        test_params = StrategyTestParams(
-            stock_code=params.stock_code,
-            start_date=params.start_date,
-            end_date=params.end_date,
-            initial_capital=params.initial_capital,
-            train_ratio=params.train_ratio,
-        )
-        result = await strategy_test_service.run_test(test_params)
-        top_items = result.items[: params.top_k] if result.items else []
-        months = max(1, params.prediction_months)
-        strategies_with_future = []
-        for item in top_items:
-            future_pct = strategy_test_service.predict_future_return_pct(
-                item.train_return_pct, item.train_bars, months
-            )
-            strategies_with_future.append(
-                item.model_copy(
-                    update={
-                        "prediction_months": months,
-                        "predicted_future_return_pct": round(future_pct, 2),
-                    }
-                )
-            )
-        analyze_result = StrategyAnalyzeResult(
-            stock_code=result.stock_code,
-            stock_name=result.stock_name,
-            full_start=result.full_start,
-            full_end=result.full_end,
-            train_ratio=result.train_ratio,
-            full_bnh_pct=result.full_bnh_pct,
-            test_bnh_pct=result.test_bnh_pct,
-            time_taken_seconds=result.time_taken_seconds,
-            prediction_months=months,
-            strategies=strategies_with_future,
-        )
+        analyze_result = await strategy_test_service.run_analyze(params)
         return ApiResponse(success=True, data=analyze_result)
     except Exception as e:
         logger.error(f"Strategy analyze error: {e}")

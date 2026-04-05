@@ -7,16 +7,17 @@
 - 基于 Alpha + 一致性 的置信度评分
 """
 
-import math
+import itertools
 import time
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
 from app.schemas.backtest import BacktestParams
 from app.schemas.strategy_test import (
     StrategyTestParams, StrategyTestResult, StrategyTestItem, ProjectedPoint,
+    StrategyAnalyzeParams, StrategyAnalyzeResult,
 )
 from app.services.backtest_service import BacktestService
 from app.adapters.market.sina_adapter import SinaAdapter
@@ -154,6 +155,147 @@ class StrategyTestService:
             items=items,
         )
 
+    async def run_analyze(self, params: StrategyAnalyzeParams) -> StrategyAnalyzeResult:
+        """
+        单股策略分析（精细搜索版）：
+        - 支持策略子集筛选
+        - 支持窗口与风控参数网格搜索（受 max_search_combinations 限制）
+        - 支持按 confidence / alpha / actual_return / sharpe 排序
+        """
+        start_ts = time.time()
+
+        test_params = StrategyTestParams(
+            stock_code=params.stock_code,
+            start_date=params.start_date,
+            end_date=params.end_date,
+            initial_capital=params.initial_capital,
+            train_ratio=params.train_ratio,
+        )
+
+        d_start = datetime.strptime(test_params.start_date, "%Y-%m-%d")
+        d_end = datetime.strptime(test_params.end_date, "%Y-%m-%d")
+        total_days = (d_end - d_start).days
+
+        kline = []
+        for datalen in [
+            max(600, int(total_days * 0.8) + 300),
+            min(1000, max(400, int(total_days * 0.6) + 100)),
+            500,
+            300,
+        ]:
+            kline = await self.adapter.get_kline_data(
+                test_params.stock_code, scale=240, datalen=datalen
+            )
+            if kline and len(kline) >= 40:
+                break
+
+        if not kline or len(kline) < 40:
+            raise ValueError(f"K线数据不足: {test_params.stock_code}")
+
+        name = test_params.stock_code
+        try:
+            stocks = await self.adapter.get_realtime_data([test_params.stock_code])
+            if stocks:
+                name = stocks[0].get("name", name)
+        except Exception:
+            pass
+
+        filtered = [
+            k for k in kline
+            if test_params.start_date <= k["date"][:10] <= test_params.end_date
+        ]
+        if len(filtered) < 40 and len(kline) >= 40:
+            filtered = kline
+            test_params = StrategyTestParams(
+                stock_code=test_params.stock_code,
+                start_date=kline[0]["date"][:10],
+                end_date=kline[-1]["date"][:10],
+                initial_capital=test_params.initial_capital,
+                train_ratio=test_params.train_ratio,
+            )
+        if len(filtered) < 40:
+            raise ValueError("K线数据不足，无法执行精细策略搜索")
+
+        split_idx = int(len(filtered) * test_params.train_ratio)
+        if split_idx < 20 or len(filtered) - split_idx < 5:
+            raise ValueError("区间太短，无法有效拆分训练/测试集")
+
+        train_kline = filtered[:split_idx]
+        test_kline = filtered[split_idx:]
+        train_start = train_kline[0]["date"][:10]
+        train_end = train_kline[-1]["date"][:10]
+        test_start = test_kline[0]["date"][:10]
+        test_end = test_kline[-1]["date"][:10]
+        train_bars = len(train_kline)
+        test_bars = len(test_kline)
+        train_bnh = self._bnh_return(train_kline)
+        test_bnh = self._bnh_return(test_kline)
+        full_bnh = self._bnh_return(filtered)
+        price_series = self._sample_price_series(filtered)
+
+        strategy_candidates = self._build_strategy_candidates(params)
+        risk_candidates = self._build_risk_candidates(params)
+        max_combos = max(10, int(params.max_search_combinations or 120))
+        plan: List[Tuple[str, int, int, str, Dict[str, Any]]] = []
+        for strategy, short_w, long_w, label in strategy_candidates:
+            for risk_cfg in risk_candidates:
+                plan.append((strategy, short_w, long_w, label, risk_cfg))
+                if len(plan) >= max_combos:
+                    break
+            if len(plan) >= max_combos:
+                break
+
+        logger.info(
+            f"[StrategyAnalyze] {params.stock_code}: strategy_candidates={len(strategy_candidates)}, "
+            f"risk_candidates={len(risk_candidates)}, executed_combos={len(plan)}"
+        )
+
+        items: List[StrategyTestItem] = []
+        for strategy, short_w, long_w, label, risk_cfg in plan:
+            item = self._test_one_strategy(
+                test_params, strategy, short_w, long_w, label,
+                kline, train_kline, test_kline,
+                train_start, train_end, test_start, test_end,
+                train_bars, test_bars,
+                train_bnh, test_bnh, price_series,
+                override_cfg=risk_cfg,
+            )
+            if item is not None:
+                items.append(item)
+
+        if not items:
+            raise ValueError("精细策略搜索无有效结果，请放宽筛选范围")
+
+        ranked = self._rank_items(items, params.rank_by)
+        top_k = max(1, int(params.top_k or 5))
+        months = max(1, int(params.prediction_months or 6))
+        selected = ranked[:top_k]
+        selected_with_future = [
+            it.model_copy(
+                update={
+                    "prediction_months": months,
+                    "predicted_future_return_pct": round(
+                        self.predict_future_return_pct(it.train_return_pct, it.train_bars, months), 2
+                    ),
+                }
+            )
+            for it in selected
+        ]
+
+        elapsed = round(time.time() - start_ts, 2)
+        return StrategyAnalyzeResult(
+            stock_code=test_params.stock_code,
+            stock_name=name,
+            full_start=test_params.start_date,
+            full_end=test_params.end_date,
+            train_ratio=test_params.train_ratio,
+            full_bnh_pct=round(full_bnh, 2),
+            test_bnh_pct=round(test_bnh, 2),
+            time_taken_seconds=elapsed,
+            prediction_months=months,
+            strategies=selected_with_future,
+        )
+
     def run_test_with_kline(
         self,
         params: StrategyTestParams,
@@ -226,6 +368,7 @@ class StrategyTestService:
         train_start, train_end, test_start, test_end,
         train_bars, test_bars,
         train_bnh, test_bnh, price_series,
+        override_cfg: Optional[Dict[str, Any]] = None,
     ) -> Optional[StrategyTestItem]:
 
         # 策略测试专用参数：比默认更激进，更多交易，更少过滤
@@ -242,6 +385,8 @@ class StrategyTestService:
             trend_ma_len=20,            # 20 (default 40) — 更灵敏
             cooldown_bars=1,            # 1 (default 2)
         )
+        if override_cfg:
+            common.update(override_cfg)
 
         # ---- 训练期 ----
         train_bp = BacktestParams(start_date=train_start, end_date=train_end, **common)
@@ -460,6 +605,84 @@ class StrategyTestService:
             score += 0  # 无交易不加分
 
         return min(100.0, max(0.0, score))
+
+    def _build_strategy_candidates(
+        self, params: StrategyAnalyzeParams
+    ) -> List[Tuple[str, int, int, str]]:
+        selected = set(s.strip() for s in (params.strategies or []) if s and s.strip())
+        base: List[Tuple[str, int, int, str]] = []
+        for strategy, short_w, long_w, label in BACKTEST_STRATEGIES:
+            if selected and strategy not in selected:
+                continue
+            base.append((strategy, short_w, long_w, label))
+
+        short_opts = [int(v) for v in (params.short_window_candidates or []) if int(v) >= 0]
+        long_opts = [int(v) for v in (params.long_window_candidates or []) if int(v) >= 0]
+
+        if not short_opts and not long_opts:
+            return base
+
+        out: List[Tuple[str, int, int, str]] = []
+        seen = set()
+        for strategy, base_short, base_long, base_label in base:
+            sw_list = short_opts or [base_short]
+            lw_list = long_opts or [base_long]
+            for sw in sw_list:
+                for lw in lw_list:
+                    if strategy in {"ma_cross", "triple_ema"} and sw > 0 and lw > 0 and sw >= lw:
+                        continue
+                    key = (strategy, sw, lw)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    if sw == base_short and lw == base_long:
+                        out.append((strategy, sw, lw, base_label))
+                    else:
+                        out.append((strategy, sw, lw, f"{base_label}[{sw},{lw}]"))
+        return out or base
+
+    def _build_risk_candidates(self, params: StrategyAnalyzeParams) -> List[Dict[str, Any]]:
+        stop_losses = params.stop_loss_candidates or [0.10]
+        trailing_stops = params.trailing_stop_candidates or [0.22]
+        risks = params.risk_per_trade_candidates or [0.08]
+        trend_lens = params.trend_ma_len_candidates or [20]
+        cooldowns = params.cooldown_bars_candidates or [1]
+
+        combos: List[Dict[str, Any]] = []
+        for sl, ts, rp, ma, cd in itertools.product(
+            stop_losses, trailing_stops, risks, trend_lens, cooldowns
+        ):
+            if sl <= 0 or ts <= 0 or rp <= 0:
+                continue
+            combos.append({
+                "stop_loss_pct": float(sl),
+                "trailing_stop_pct": float(ts),
+                "risk_per_trade": float(rp),
+                "trend_ma_len": int(ma),
+                "cooldown_bars": int(cd),
+                "max_position_pct": 0.95,
+            })
+        return combos or [{
+            "stop_loss_pct": 0.10,
+            "trailing_stop_pct": 0.22,
+            "risk_per_trade": 0.08,
+            "trend_ma_len": 20,
+            "cooldown_bars": 1,
+            "max_position_pct": 0.95,
+        }]
+
+    @staticmethod
+    def _rank_items(items: List[StrategyTestItem], rank_by: str) -> List[StrategyTestItem]:
+        mode = (rank_by or "confidence").lower()
+        if mode == "alpha":
+            key_fn = lambda it: (it.test_alpha_pct, it.confidence_score, it.actual_return_pct)
+        elif mode == "actual_return":
+            key_fn = lambda it: (it.actual_return_pct, it.confidence_score, it.test_alpha_pct)
+        elif mode == "sharpe":
+            key_fn = lambda it: (it.actual_sharpe, it.confidence_score, it.actual_return_pct)
+        else:
+            key_fn = lambda it: (it.confidence_score, it.test_alpha_pct, it.actual_return_pct)
+        return sorted(items, key=key_fn, reverse=True)
 
     def _sample_price_series(self, filtered: list) -> list:
         closes = [k["close"] for k in filtered]
