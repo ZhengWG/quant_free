@@ -16,6 +16,7 @@ from loguru import logger
 from app.core.config import settings
 from app.services.auto_trade_service import AutoTradeService
 from app.services.email_service import send_daily_report
+from app.services.sms_service import send_event_sms
 
 
 class AutoScheduler:
@@ -97,6 +98,15 @@ class AutoScheduler:
                     f"[AutoScheduler] 日内平仓 session={session_id}: "
                     f"{len(signals)} 笔 ({', '.join(s.stock_code for s in signals)})"
                 )
+                if settings.SMS_ENABLED:
+                    for sig in signals[:10]:
+                        action = "卖出" if sig.signal == "SELL" else sig.signal
+                        content = (
+                            f"{sig.stock_code} {action} "
+                            f"@{sig.price:.2f} x{sig.quantity} "
+                            f"盈亏{sig.profit:+.0f} {sig.notes}"
+                        )
+                        await send_event_sms(session_id, content, event="intraday_stop")
         except Exception as e:
             logger.error(f"[AutoScheduler] 日内止损检查失败 session={session_id}: {e}")
 
@@ -113,12 +123,17 @@ class AutoScheduler:
                     f"[AutoScheduler] session={session.id} 完成 {today}："
                     f"{len(signals)}条信号，买{len(buys)}笔 卖{len(sells)}笔"
                 )
+                if settings.SMS_ENABLED and executed:
+                    first = executed[0]
+                    content = (
+                        f"{today} 收盘执行 买{len(buys)} 卖{len(sells)} "
+                        f"首笔:{first.stock_code} {first.signal}@{first.price:.2f}x{first.quantity}"
+                    )
+                    await send_event_sms(session.name or session.id, content, event="eod_summary")
             except Exception as e:
                 logger.error(f"[AutoScheduler] session={session.id} 执行失败: {e}")
 
         # 2. 汇总所有 running 会话的绩效（不只是今天跑过的）
-        if not settings.EMAIL_ENABLED:
-            return
         try:
             all_sessions = await self.service.list_sessions()
             running = [s for s in all_sessions if s.status == "running"]
@@ -165,7 +180,18 @@ class AutoScheduler:
 
         if session_reports:
             report = {"date": today, "sessions": session_reports}
-            await send_daily_report(report)
+            if settings.EMAIL_ENABLED:
+                await send_daily_report(report)
+            if settings.SMS_ENABLED:
+                avg_ret = (
+                    sum(s["total_return_pct"] for s in session_reports) / len(session_reports)
+                    if session_reports else 0.0
+                )
+                sms = (
+                    f"{today} 日报 会话{len(session_reports)}个 "
+                    f"平均收益{avg_ret:+.2f}%"
+                )
+                await send_event_sms("ALL", sms, event="daily_report")
 
     async def _run_session(self, session_id: str, today: str):
         try:
