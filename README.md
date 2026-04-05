@@ -400,7 +400,8 @@ quant_free/
 - **行情**：默认使用新浪/腾讯/东方财富，无需 Token。插件设置 `quantFree.dataSource` 可选 `auto` / `sina` / `tencent` / `eastmoney`。
 - **AI**：`server/.env` 中配置 `DEEPSEEK_API_KEY`、`AI_PROVIDER=deepseek`（或 OpenAI/Claude）；未配置时策略与智选返回模拟结果。
 - **模拟交易费率**：佣金 0.025%（最低 5 元）、印花税 0.05%（仅卖出）、过户费 0.001%、滑点约 0.1%。
-- **短信提醒（可选）**：在 `server/.env` 设置 `SMS_ENABLED=1`，支持 `SMS_PROVIDER=webhook/twilio`；可用于盘中止盈止损、收盘执行与日报摘要提醒。
+- **邮件提醒（可选）**：在 `server/.env` 设置 `EMAIL_ENABLED=1`；`EMAIL_RECEIVER` 支持多个邮箱（英文逗号分隔）。
+- **短信提醒（可选）**：在 `server/.env` 设置 `SMS_ENABLED=1`，支持 `SMS_PROVIDER=webhook/twilio`；`SMS_RECEIVERS` 支持多个号码（英文逗号分隔）；可用于盘中止盈止损、收盘执行与日报摘要提醒。
 
 ### 实盘交易（macOS + 同花顺）
 
