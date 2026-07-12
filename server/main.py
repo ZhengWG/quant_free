@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.database import init_db, AsyncSessionLocal
 from sqlalchemy import text
 from app.api.routes import market, strategy, trade, backtest
-from app.api.routes import auto_trade
+from app.api.routes import auto_trade, advice
 from app.services.websocket_service import setup_websocket
 from app.services.auto_scheduler import get_scheduler
 
@@ -181,6 +181,7 @@ app.include_router(strategy.router, prefix="/api/v1/strategy", tags=["策略推�
 app.include_router(trade.router, prefix="/api/v1/trade", tags=["交易执行"])
 app.include_router(backtest.router, prefix="/api/v1/backtest", tags=["策略回测"])
 app.include_router(auto_trade.router, prefix="/api/v1/auto-trade", tags=["全自动交易"])
+app.include_router(advice.router, prefix="/api/v1/advice", tags=["每日交易建议"])
 
 # 设置WebSocket
 setup_websocket(app)

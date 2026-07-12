@@ -31,7 +31,7 @@ Base = declarative_base()
 
 async def init_db():
     """初始化数据库"""
-    from app.models import stock, strategy, order, position, market_cache
+    from app.models import stock, strategy, order, position, market_cache, recommendation
     
     async with engine.begin() as conn:
         # 创建所有表

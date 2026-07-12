@@ -272,3 +272,133 @@ async def send_daily_report(report: dict) -> bool:
     html = _build_html(report)
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _send_email_sync, subject, html)
+
+
+# ======================================================================
+# 每日交易建议邮件（Phase 2：全市场推荐 + 延续性）
+# ======================================================================
+
+_MARKET_BADGE = {
+    "A股": ("#e8f0fe", "#1a73e8"),
+    "港股": ("#fef7e0", "#f9a825"),
+    "美股": ("#e6f4ea", "#137333"),
+}
+
+
+def _fmt(v, digits=2, suffix=""):
+    if v is None:
+        return "-"
+    try:
+        return f"{float(v):.{digits}f}{suffix}"
+    except (ValueError, TypeError):
+        return "-"
+
+
+def _advice_row(r: dict, kind: str) -> str:
+    """渲染一条推荐（kind: holding/new/exit）"""
+    bg, fg = _MARKET_BADGE.get(r.get("market", ""), ("#f1f3f4", "#5f6368"))
+    ret = r.get("return_since_rec_pct", 0.0)
+    ret_color = "#c0392b" if ret < 0 else "#27ae60"
+    sig = r.get("signal", "") or "-"
+    ai = (r.get("ai_comment") or "").strip()
+    ai_html = (
+        f'<div style="margin-top:6px;font-size:12px;color:#666;line-height:1.5;">💬 {ai[:180]}</div>'
+        if ai else ""
+    )
+
+    # 延续性标注
+    cont = ""
+    if kind != "new":
+        cont = (
+            f'<span style="color:#888;font-size:12px;">首推 {r.get("first_recommended_date","")} · '
+            f'已持 {r.get("days_held",0)} 天 · '
+            f'<span style="color:{ret_color};font-weight:600;">推荐以来 {ret:+.2f}%</span></span>'
+        )
+    else:
+        cont = '<span style="background:#e6f4ea;color:#137333;font-size:11px;padding:2px 8px;border-radius:10px;">今日新增</span>'
+
+    fundamentals = ""
+    if r.get("pe") is not None or r.get("roe") is not None:
+        fundamentals = (
+            f'<span style="color:#888;font-size:12px;">'
+            f'PE {_fmt(r.get("pe"),1)} · PB {_fmt(r.get("pb"),2)} · ROE {_fmt(r.get("roe"),1,"%")}</span>'
+        )
+
+    exit_html = ""
+    if kind == "exit":
+        exit_html = (
+            f'<div style="margin-top:4px;font-size:12px;color:#c0392b;">⚠ 建议退出：{r.get("exit_reason","")}</div>'
+        )
+
+    return f"""
+    <div style="border:1px solid #eee;border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <div style="font-size:15px;font-weight:600;color:#222;">
+          <span style="background:{bg};color:{fg};font-size:11px;padding:2px 8px;border-radius:4px;margin-right:8px;">{r.get("market","")}</span>
+          {r.get("stock_name","")} <span style="color:#999;font-weight:400;">{r.get("stock_code","")}</span>
+        </div>
+        <div>{cont}</div>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:#444;">
+        策略 <b>{r.get("strategy_label","")}</b> · 信号 <b>{sig}</b> ·
+        置信度 {_fmt(r.get("confidence"),0)} · 综合分 {_fmt(r.get("composite_score"),0)}
+      </div>
+      <div style="margin-top:6px;font-size:13px;color:#444;">
+        现价 <b>¥{_fmt(r.get("current_price"),3)}</b> ·
+        参考价 ¥{_fmt(r.get("entry_ref_price"),3)} ·
+        目标 <span style="color:#27ae60;">¥{_fmt(r.get("target_price"),3)}</span> ·
+        止损 <span style="color:#c0392b;">¥{_fmt(r.get("stop_loss"),3)}</span>
+      </div>
+      <div style="margin-top:4px;">{fundamentals}</div>
+      {ai_html}
+      {exit_html}
+    </div>"""
+
+
+def _build_advice_html(report: dict) -> str:
+    today = report["date"]
+    holding, new, exit_ = report["holding"], report["new"], report["exit"]
+
+    def section(title, rows, kind, empty_text):
+        body = "".join(_advice_row(r, kind) for r in rows) if rows else \
+            f'<div style="padding:12px;text-align:center;color:#aaa;font-size:13px;">{empty_text}</div>'
+        return f"""
+        <div style="padding:20px 28px 0;">
+          <h2 style="margin:0 0 14px;font-size:16px;color:#333;">{title}（{len(rows)}）</h2>
+          {body}
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <div style="max-width:760px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
+    <div style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:28px 32px;">
+      <h1 style="margin:0;color:#fff;font-size:22px;">QuantFree 每日交易建议</h1>
+      <p style="margin:6px 0 0;color:rgba(255,255,255,.85);font-size:14px;">
+        {today} · 全市场智选 · 持有{len(holding)} 新增{len(new)} 退出{len(exit_)}
+      </p>
+    </div>
+    {section("📌 延续持有", holding, "holding", "暂无延续持有")}
+    {section("🆕 新增推荐", new, "new", "今日无新增")}
+    {section("⚠️ 建议退出", exit_, "exit", "今日无退出")}
+    <div style="padding:24px 32px;margin-top:20px;border-top:1px solid #eee;text-align:center;color:#aaa;font-size:12px;">
+      QuantFree 全市场智选 · 推荐带延续性追踪 · 仅供参考，不构成投资建议
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+async def send_daily_advice(report: dict) -> bool:
+    """异步发送每日交易建议邮件"""
+    if not settings.EMAIL_ENABLED:
+        return False
+    c = report.get("counts", {})
+    subject = (
+        f"💡 QuantFree 每日交易建议 {report['date']} · "
+        f"持有{c.get('holding',0)} 新增{c.get('new',0)} 退出{c.get('exit',0)}"
+    )
+    html = _build_advice_html(report)
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _send_email_sync, subject, html)
