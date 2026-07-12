@@ -443,6 +443,21 @@ class SinaAdapter:
             logger.error(f"East Money get_realtime_data error: {e}")
             return []
 
+    def _tencent_kline_symbols(self, code: str) -> List[str]:
+        """
+        返回腾讯K线候选符号列表。
+        - A股/港股：单个符号（sh600519 / hk00700）
+        - 美股：腾讯符号带交易所后缀（NASDAQ=.OQ / NYSE=.N），
+          命中缓存则直接用，否则依次探测 [usAAPL.OQ, usAAPL.N]
+        """
+        norm = self._normalize_code(code)
+        if norm.startswith("gb_"):
+            base = norm[3:].upper()
+            if base in self._us_symbol_cache:
+                return [self._us_symbol_cache[base]]
+            return [f"us{base}.OQ", f"us{base}.N"]
+        return [norm]
+
     async def get_kline_data(self, code: str, scale: int = 240, datalen: int = 100) -> List[Dict]:
         """
         获取K线数据（腾讯财经API）
@@ -450,7 +465,7 @@ class SinaAdapter:
         :param scale: 周期(分钟) 5/15/30/60/240(日K)
         :param datalen: 数据条数
         """
-        tencent_code = self._normalize_code(code)
+        symbols = self._tencent_kline_symbols(code)
 
         # 周期映射
         period_map = {5: "m5", 15: "m15", 30: "m30", 60: "m60", 240: "day", 1200: "week", 7200: "month"}
@@ -460,43 +475,53 @@ class SinaAdapter:
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=datalen * 3)).strftime("%Y-%m-%d")
 
-        url = f"{self.TENCENT_KLINE_URL}?param={tencent_code},{period},{start_date},{end_date},{datalen},qfq"
+        import json
+        timeout = 15.0 if datalen <= 500 else 30.0
 
-        try:
-            timeout = 15.0 if datalen <= 500 else 30.0
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.get(url)
+        # 美股可能有多个候选符号（.OQ/.N），依次尝试取第一个有数据的
+        for tencent_code in symbols:
+            url = f"{self.TENCENT_KLINE_URL}?param={tencent_code},{period},{start_date},{end_date},{datalen},qfq"
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.get(url)
 
-            import json
-            data = json.loads(response.text)
+                data = json.loads(response.text)
+                if data.get("code") != 0:
+                    logger.warning(f"Tencent kline API error for {tencent_code}: {data}")
+                    continue
 
-            if data.get("code") != 0:
-                logger.warning(f"Tencent kline API error: {data}")
-                return []
+                stock_data = data.get("data", {}).get(tencent_code, {})
+                # 腾讯API可能返回 "day" 或 "qfqday" (前复权)
+                kline_list = stock_data.get(period) or stock_data.get(f"qfq{period}", [])
+                if not kline_list:
+                    continue
 
-            stock_data = data.get("data", {}).get(tencent_code, {})
-            # 腾讯API可能返回 "day" 或 "qfqday" (前复权)
-            kline_list = stock_data.get(period) or stock_data.get(f"qfq{period}", [])
+                results = []
+                for item in kline_list:
+                    # 格式: [日期, 开盘, 收盘, 最高, 最低, 成交量]
+                    if len(item) >= 6:
+                        results.append({
+                            "date": item[0],
+                            "open": float(item[1]),
+                            "high": float(item[3]),
+                            "low": float(item[4]),
+                            "close": float(item[2]),
+                            "volume": float(item[5]),
+                            "amount": 0.0,
+                        })
 
-            results = []
-            for item in kline_list:
-                # 格式: [日期, 开盘, 收盘, 最高, 最低, 成交量]
-                if len(item) >= 6:
-                    results.append({
-                        "date": item[0],
-                        "open": float(item[1]),
-                        "high": float(item[3]),
-                        "low": float(item[4]),
-                        "close": float(item[2]),
-                        "volume": float(item[5]),
-                        "amount": 0.0,
-                    })
+                # 美股探测成功后缓存交易所后缀，避免重复试探
+                if tencent_code.startswith("us") and "." in tencent_code:
+                    base = tencent_code[2:].split(".")[0].upper()
+                    self._us_symbol_cache[base] = tencent_code
 
-            logger.info(f"Tencent kline: fetched {len(results)} records for {code} ({period}), requested {datalen}")
-            return results
-        except Exception as e:
-            logger.error(f"Tencent get_kline_data error for {code}: {e}")
-            return []
+                logger.info(f"Tencent kline: fetched {len(results)} records for {code} ({tencent_code},{period}), requested {datalen}")
+                return results
+            except Exception as e:
+                logger.error(f"Tencent get_kline_data error for {tencent_code}: {e}")
+                continue
+
+        return []
 
     def _code_to_eastmoney_secid_ext(self, code: str) -> str:
         """股票代码 -> 东方财富 secid，支持 A 股和港股"""
