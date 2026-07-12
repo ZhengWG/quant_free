@@ -25,15 +25,26 @@ class SinaAdapter:
             "Referer": "https://finance.sina.com.cn",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         }
+        # 美股腾讯K线符号缓存：{AAPL: usAAPL.OQ}（首次探测 .OQ/.N 成功后缓存）
+        self._us_symbol_cache: Dict[str, str] = {}
 
     def _normalize_code(self, code: str) -> str:
         """
-        将股票代码标准化为新浪/腾讯格式 (sh/sz前缀)
+        将股票代码标准化为新浪行情格式：
+        - A股 sh/sz 前缀，港股 hk 前缀，美股 gb_ 前缀
         """
         code = code.strip()
 
-        if code.startswith(("sh", "sz")):
-            return code.lower()
+        low = code.lower()
+        if low.startswith(("sh", "sz")):
+            return low
+
+        if low.startswith("gb_"):
+            return low
+
+        # 显式美股前缀（小写 us，如 usAAPL）；大写 US 开头的 ticker(如 USB) 不算前缀
+        if code.startswith("us") and len(code) > 2:
+            return f"gb_{code[2:].lower()}"
 
         if code.upper().startswith("HK"):
             return "hk" + code[2:]
@@ -47,7 +58,11 @@ class SinaAdapter:
         if code.isalpha():
             return f"gb_{code.lower()}"
 
-        return code.lower()
+        return low
+
+    def _market_of(self, code: str) -> str:
+        """统一市场判定：返回 'A股' / '港股' / '美股' / '未知'"""
+        return self._detect_market(self._normalize_code(code))
 
     def _detect_market(self, sina_code: str) -> str:
         if sina_code.startswith(("sh", "sz")):
@@ -157,6 +172,61 @@ class SinaAdapter:
             logger.error(f"Parse HK data error for {sina_code}: {e}")
             return None
 
+    def _parse_us_line(self, line: str) -> Optional[Dict]:
+        """
+        解析美股实时行情（新浪 gb_ 格式）。
+        字段序（已按实测样本核对，gb_aapl）：
+          [0]名称 [1]现价 [2]涨跌幅% [3]时间 [4]涨跌额
+          [5]开 [6]最高 [7]最低 [8]52周高 [9]52周低 [10]成交量 [26]昨收
+        """
+        match = re.match(r'var hq_str_(\w+)="(.*)";', line)
+        if not match:
+            return None
+
+        sina_code = match.group(1)          # gb_aapl
+        data_str = match.group(2)
+        if not data_str:
+            return None
+
+        parts = data_str.split(",")
+        if len(parts) < 27:
+            return None
+
+        try:
+            name = parts[0]
+            price = float(parts[1])
+            change_pct = float(parts[2])
+            change = float(parts[4])
+            open_price = float(parts[5])
+            high = float(parts[6])
+            low = float(parts[7])
+            volume = float(parts[10]) if parts[10] else 0.0
+            pre_close = float(parts[26]) if parts[26] else price - change
+
+            raw_code = sina_code[3:].upper()   # gb_aapl -> AAPL
+
+            # 新浪美股时间已是 "YYYY-MM-DD HH:MM:SS"，可直接用
+            ts = parts[3].strip() or datetime.now().isoformat()
+
+            return {
+                "code": raw_code,
+                "name": name,
+                "market": "美股",
+                "price": price,
+                "change": change,
+                "change_percent": change_pct,
+                "volume": volume,
+                "amount": 0.0,
+                "high": high,
+                "low": low,
+                "open": open_price,
+                "pre_close": pre_close,
+                "timestamp": ts,
+            }
+        except (ValueError, IndexError) as e:
+            logger.error(f"Parse US data error for {sina_code}: {e}")
+            return None
+
     # 数据源调度顺序
     _SOURCE_METHODS = {
         "sina": "_get_realtime_from_sina",
@@ -208,6 +278,8 @@ class SinaAdapter:
 
                 if "hq_str_hk" in line:
                     data = self._parse_hk_line(line)
+                elif "hq_str_gb_" in line:
+                    data = self._parse_us_line(line)
                 else:
                     data = self._parse_ashare_line(line)
 
